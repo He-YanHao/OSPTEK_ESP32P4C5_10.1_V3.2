@@ -14,5 +14,7 @@ dependencies:
   #   # `public` flag doesn't have an effect dependencies of the `main` component.
   #   # All dependencies of `main` are public by default.
   #   public: true
-  lvgl/lvgl: ~9.4.0
+  lvgl/lvgl:
+    version: '*'
+    override_path: '../components/lvgl'
   espressif/esp_lvgl_adapter: '*'
