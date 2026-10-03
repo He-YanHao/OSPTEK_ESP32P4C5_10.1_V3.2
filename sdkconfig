@@ -2926,7 +2926,6 @@ CONFIG_ESP_LCD_TOUCH_MAX_BUTTONS=1
 # CONFIG_ESP_LVGL_ADAPTER_ENABLE_FREETYPE is not set
 # default:
 # CONFIG_ESP_LVGL_ADAPTER_LVGL_THREAD_STACK_IN_PSRAM is not set
-# default:
 # CONFIG_ESP_LVGL_ADAPTER_ENABLE_FPS_STATS is not set
 # default:
 # CONFIG_ESP_LVGL_ADAPTER_ENABLE_BUTTON is not set
@@ -3011,8 +3010,7 @@ CONFIG_LV_USE_BUILTIN_SPRINTF=y
 #
 # HAL Settings
 #
-# default:
-CONFIG_LV_DEF_REFR_PERIOD=33
+CONFIG_LV_DEF_REFR_PERIOD=20
 # default:
 CONFIG_LV_DPI_DEF=130
 # end of HAL Settings
@@ -3182,11 +3180,8 @@ CONFIG_LV_ASSERT_HANDLER_INCLUDE="assert.h"
 #
 # Debug
 #
-# default:
 # CONFIG_LV_USE_REFR_DEBUG is not set
-# default:
 # CONFIG_LV_USE_LAYER_DEBUG is not set
-# default:
 # CONFIG_LV_USE_PARALLEL_DRAW_DEBUG is not set
 # end of Debug
 
@@ -3579,7 +3574,6 @@ CONFIG_LV_FS_DEFAULT_DRIVER_LETTER=0
 #
 # default:
 # CONFIG_LV_USE_SNAPSHOT is not set
-# default:
 # CONFIG_LV_USE_SYSMON is not set
 # default:
 # CONFIG_LV_USE_PROFILER is not set
