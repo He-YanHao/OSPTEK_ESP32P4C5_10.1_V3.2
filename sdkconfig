@@ -3211,6 +3211,7 @@ CONFIG_LV_OBJ_STYLE_CACHE=y
 # CONFIG_LV_USE_OBJ_NAME is not set
 # default:
 # CONFIG_LV_USE_OBJ_PROPERTY is not set
+CONFIG_LV_USE_GESTURE_RECOGNITION=y
 # end of Others
 # end of Feature Configuration
 
@@ -3223,8 +3224,7 @@ CONFIG_LV_OBJ_STYLE_CACHE=y
 CONFIG_LV_ATTRIBUTE_MEM_ALIGN_SIZE=1
 # default:
 # CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM is not set
-# default:
-# CONFIG_LV_USE_FLOAT is not set
+CONFIG_LV_USE_FLOAT=y
 # default:
 # CONFIG_LV_USE_MATRIX is not set
 # default:
