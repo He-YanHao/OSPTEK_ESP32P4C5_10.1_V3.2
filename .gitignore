@@ -1,0 +1,37 @@
+# guider 工程
+guider/licenses/
+guider/platform/
+!guider/guider.guiguider
+!guider/preview.png
+!guider/SCR.txt
+
+# ESP-IDF 构建输出
+build/
+sdkconfig.old
+sdkconfig.bak
+
+# C/C++ 编译产物
+*.o
+*.obj
+*.d
+*.a
+*.elf
+*.bin
+*.map
+*.lst
+
+# Python 相关
+__pycache__/
+*.pyc
+*.pyo
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 临时文件
+*.tmp
+*.bak
+*.log
