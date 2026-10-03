@@ -1,0 +1,215 @@
+Software Content Register
+
+Package:
+Version:
+Outgoing License:
+License File:
+Description and comments:
+Release Location:
+Origin:                    NXP (BSD-3-Clause)
+                           NXP (Apache License 2.0)
+                           NXP (MIT)
+                           Amazon (MIT)
+                           Electronic Lives Mfg. by ChaN of Ageo city, Japan (FatFs License)
+                           CMSIS - ARM (Apache-2.0) - https://github.com/ARM-software/CMSIS_5/
+                           CMSIS_ICCARM - IAR Systems, ARM (Apache-2.0) - https://github.com/ARM-software/CMSIS_5/
+                           Samsung - https://github.com/libsdl-org/SDL
+                           Samsung - https://github.com/Samsung/rlottie
+                           freertos - Amazon (MIT) - https://aws.amazon.com/freertos/
+                           Petteri Aimonen (https://github.com/PetteriAimonen)
+                           VeriSilicon (MIT), Raph Levien, Nicolas Silva (Apache-2.0)
+                           lvgl - Gabor Kiss-Vamosi (MIT) - https://github.com/lvgl/lvgl
+                           lvgl_tlsf- Matthew Conte (BSD-3-Clause) - https://github.com/lvgl/lvgl
+                           Cisco (BSD-2-Clause) - https://github.com/cisco/openh264/tree/v2.1.1
+                           https://lvgl.io/assets/others/FontAwesome5-Solid+Brands+Regular.woff
+                           https://fonts.google.com/specimen/Montserrat/about
+                           https://github.com/micmro/Stylify-Me/blob/main/.fonts
+                           https://www.cufonfonts.com/
+                           https://www.fontsquirrel.com/
+                           ArchitectsDaughter font file
+
+-------------------------------------------------------------
+Folder Name: lvgl
+lvgl                       Name: LVGL
+                           Version: 9.4.0
+                           Outgoing License: MIT
+                           License File: lvgl/LICENSE
+                           Format: source code
+                           Description: Light and Versatile Graphics Library
+                           (LVGL)
+                           Location: lvgl
+                           Origin: Gabor Kiss-Vamosi
+                           Url: https://github.com/lvgl/lvgl
+
+lvgl_tlsf                  Name: LVGL tlsf
+                           Version: 9.4.0
+                           Outgoing License: BSD-3-Clause
+                           License File: BSD-3-Clause
+                           Format: source code
+                           Description and comments: Light and Versatile Graphics Library (LVGL)
+                           Release location:
+                           Origin: Matthew Conte - https://github.com/lvgl/lvgl
+
+lv_printf                  Name: LVGL printf
+                           Version: 9.4.0
+                           Outgoing License: MIT
+                           License File: MIT
+                           Format: source code
+                           Description and comments: LVGL print function
+                           Release location:
+                           Origin: Marco Paland - https://github.com/lvgl/lvgl
+
+qrcode                     Name: QR Code
+                           Version: 9.4.0
+                           Outgoing License: MIT
+                           License File: MIT
+                           Format: source code
+                           Description and comments: QR Code function
+                           Release location:
+                           Origin: Project Nayuki - https://github.com/lvgl/lvgl
+
+png                        Name: png
+                           Version: 9.4.0
+                           Outgoing License: MIT
+                           License File: MIT
+                           Format: source code
+                           Description and comments: png function
+                           Release location:
+                           Origin: Lode Vandevenne - https://github.com/lvgl/lvgl
+
+jpg                        Name: jpg
+                           Version: 9.4.0
+                           Outgoing License: MIT
+                           License File: MIT
+                           Format: source code
+                           Description and comments: jpg function
+                           Release location:
+                           Origin: ChaN - https://github.com/lvgl/lvgl
+
+-------------------------------------------------------------
+Folder Name: platform
+SDL2                       Name: SDL2
+                           Version: NA
+                           Outgoing License: zlib License
+                           License File: https://github.com/libsdl-org/SDL/blob/main/LICENSE.txt
+                           Format: source code
+                           Description: It is used by video playback software, emulators,
+                           and popular games including Valve's award winning catalog and many Humble Bundle games
+                           Location: simulator/modules/SDL2
+                           Origin: Sam Lantinga (slouken@libsdl.org)
+                           Url: https://github.com/libsdl-org/SDL
+
+-------------------------------------------------------------
+Folder Name: board
+Package License: LA_OPT_NXP_Software_License v63 May 2025
+SDK_Peripheral_Driver      Name: SDK Peripheral Driver
+                           Version: 2.x.x
+                           Outgoing License: BSD-3-clause
+                           License File: COPYING-BSD-3
+                           Format: source code
+                           Description: Peripheral drivers are designed for
+                           the most common use cases identified for the
+                           underlying hardware block.
+                           Location: sdk/$(TOOLCHAIN)/drivers
+                           Origin: NXP (BSD-3-Clause)
+
+SDK_Device                 Name: SDK SoC files
+                           Version: NA
+                           Outgoing License: BSD-3-Clause
+                           License File: COPYING-BSD-3
+                           Format: source code, linker files
+                           Description: Device system files, template files,
+                           IDE related startup and linker files.
+                           Location: sdk/$(TOOLCHAIN)/device
+                           Origin: NXP (BSD-3-Clause)
+
+SDK_Components             Name: SDK components and board peripheral drivers
+                           Version: NA
+                           Outgoing License: BSD-3-Clause
+                           License File: COPYING-BSD-3
+                           Format: source code
+                           Description: SDK components and board peripheral
+                           drivers, for example, flash and codec drivers.
+                           Location: sdk/$(TOOLCHAIN)/component
+                           Origin: NXP (BSD-3-Clause), ITE (BSD-3-Clause)
+
+cmsis                      Name: SDK CMSIS Peripheral Drivers
+                           Version: 2.x.x
+                           Outgoing License: Apache License 2.0
+                           License File: sdk/mcuxpresso/CMSIS/LICENSE.txt
+                           Format: source code
+                           Description: CMSIS Peripheral drivers are designed
+                           to provide hardware independent APIs which make
+                           application reusable across a wide range of
+                           supported microcontroller devices.
+                           Location: sdk/mcuxpresso/CMSIS
+                           Origin: NXP (Apache License 2.0)
+
+fatfs                      Name: FatFs
+                           Version: 0.14b
+                           Outgoing License: FatFs License
+                           Approved open source license: Yes
+                           License File: sdk/$(TOOLCHAIN)/middleware/fatfs/LICENSE.txt
+                           Format: source code
+                           Description: Generic FAT file system for small
+                           embedded devices.
+                           Location: sdk/$(TOOLCHAIN)/middleware/fatfs
+                           Origin: Electronic Lives Mfg. by ChaN of Ageo
+                           city, Japan (FatFs License)
+                           Url: http://elm-chan.org/fsw/ff/00index_e.html
+
+freertos-kernel            Name: FreeRTOS kernel
+                           Version: 10.5.1
+                           Outgoing License: MIT
+                           License File:
+                           sdk/$(TOOLCHAIN)/rtos/freertos/freertos-kernel/LICENSE.md
+                           Format: source code
+                           Description: Open source RTOS kernel for small
+                           devices
+                           Location: rtos/freertos/freertos-kernel
+                           Origin: Amazon (MIT)
+                           Url: https://github.com/FreeRTOS/FreeRTOS-Kernel
+
+sdmmc                      Name: SD MMC SDIO Card middleware
+                           Version: 2.2.7
+                           Outgoing License: BSD-3-Clause
+                           License File: COPYING-BSD-3
+                           Format: source code
+                           Description: A software component support SD card,
+                           eMMC card, SDIO card.
+                           Location: sdk/$(TOOLCHAIN)/middleware/sdmmc
+                           Origin: NXP (BSD-3-Clause)
+
+lvgl                       Name: LVGL
+                           Version: 9.4.0
+                           Outgoing License: MIT
+                           License File: sdk/$(TOOLCHAIN)/middleware/lvgl/LICENCE.txt
+                           Format: source code
+                           Description: Light and Versatile Graphics Library
+                           (LVGL)
+                           Location: sdk/$(TOOLCHAIN)/middleware/lvgl
+                           Origin: Gabor Kiss-Vamosi
+                           Url: https://github.com/lvgl/lvgl
+
+board                      Name: board
+                           Version: NA
+                           Outgoing License: BSD-3-Clause
+                           License File: COPYING-BSD-3
+                           Format: source code
+                           Description: SDK out of box examples to show how
+                           to use peripheral drivers and integrate middleware.
+                           Location: sdk/mcuxpresso/board
+                           Origin: NXP (BSD-3-Clause)
+
+vglite                     Name: vglite
+                           Version: 3.0.15_rev7
+                           Outgoing License: MIT
+                           License File: sdk/$(TOOLCHAIN)/middleware/vglite/driver/LICENSE.txt
+                           Format: source code
+                           Description: VeriSilicon's platform independent
+                           VGLite Graphics library
+                           Location: sdk/$(TOOLCHAIN)/driver/vglite
+                           Origin: VeriSilicon (MIT), Raph Levien, Nicolas
+                           Silva (Apache-2.0)
+                           Url: http://www.verisilicon.com/,
+                           https://github.com/linebender/kurbo

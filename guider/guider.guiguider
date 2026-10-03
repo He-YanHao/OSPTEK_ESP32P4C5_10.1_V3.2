@@ -1,0 +1,137 @@
+{
+  "projectId": "project-MUS2QKOOKJRY",
+  "projectName": "guider",
+  "projectPath": "/home/he/esp/p4_new/guider",
+  "version": "2.0.1",
+  "toolVendor": "NXP Semiconductors",
+  "createDate": "2026-10-03",
+  "createVersion": "2.0.1",
+  "lastModified": "2026-10-03T07:40:13.861Z",
+  "description": "",
+  "metadata": {
+    "board": {
+      "id": 20,
+      "name": "Simulator"
+    },
+    "application": {
+      "id": 3,
+      "name": "BlankTemplate"
+    }
+  },
+  "projectSettings": {
+    "lvglVersion": "9.4.0",
+    "width": 1280,
+    "height": 800,
+    "targetConfig": {
+      "targetRun": false,
+      "targetBuild": false,
+      "toolchainAlias": "simulator",
+      "toolchain": "x86_64-w64-mingw32",
+      "display": "SDL2",
+      "colorDepth": "24",
+      "display_name": ""
+    },
+    "imageConfig": {
+      "storage_type": "CArray",
+      "sd_path": "/sdcard/images/",
+      "flash_address": "0xFFFFFFFFU",
+      "color_format": "RGB565A8",
+      "aligned": 0,
+      "origin_size": 0,
+      "compress": "",
+      "dither": ""
+    },
+    "fontConfig": {
+      "default_family": "montserratMedium.ttf",
+      "default_size": 14,
+      "enable_base_chars": 1,
+      "base_chars": "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+    }
+  },
+  "lvConf": {
+    "LV_MEM_SIZE": 320
+  },
+  "UI": {
+    "screen_list": [
+      {
+        "type": "layer_sys",
+        "name": "layer_sys",
+        "id": "layer_sys",
+        "children": []
+      },
+      {
+        "type": "layer_top",
+        "name": "layer_top",
+        "id": "layer_top",
+        "children": []
+      },
+      {
+        "type": "layer_bottom",
+        "name": "layer_bottom",
+        "id": "layer_bottom",
+        "children": []
+      },
+      {
+        "type": "screen",
+        "id": "screen",
+        "name": "screen",
+        "default_screen": true,
+        "style": {
+          "LV_PART_MAIN|LV_STATE_DEFAULT": {
+            "part": "LV_PART_MAIN",
+            "state": "LV_STATE_DEFAULT"
+          }
+        },
+        "children": [
+          {
+            "id": "MUS2R8CDT0VH",
+            "type": "keyboard",
+            "name": "keyboard_1_copy",
+            "width": 1280,
+            "width_unit": "px",
+            "height": 400,
+            "height_unit": "px",
+            "x": 0,
+            "x_unit": "px",
+            "y": 400,
+            "y_unit": "px",
+            "align": "LV_ALIGN_TOP_LEFT",
+            "style": {
+              "LV_PART_MAIN|LV_STATE_DEFAULT": {
+                "part": "LV_PART_MAIN",
+                "state": "LV_STATE_DEFAULT"
+              }
+            },
+            "children": [],
+            "mode": "LV_KEYBOARD_MODE_TEXT_UPPER"
+          },
+          {
+            "id": "keyboard_MUS2R09LQNH2",
+            "type": "keyboard",
+            "name": "keyboard_1",
+            "width": 1280,
+            "width_unit": "px",
+            "height": 400,
+            "height_unit": "px",
+            "x": 0,
+            "x_unit": "px",
+            "y": 0,
+            "y_unit": "px",
+            "align": "LV_ALIGN_TOP_LEFT",
+            "style": {
+              "LV_PART_MAIN|LV_STATE_DEFAULT": {
+                "part": "LV_PART_MAIN",
+                "state": "LV_STATE_DEFAULT"
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "event_list": {},
+    "variable_setting": {
+      "condition": {},
+      "lv_anim_t": {}
+    }
+  }
+}
