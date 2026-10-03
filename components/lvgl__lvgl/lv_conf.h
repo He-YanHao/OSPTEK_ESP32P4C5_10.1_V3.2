@@ -384,7 +384,7 @@
 #endif
 
 /** Draw using espressif PPA accelerator */
-#define LV_USE_PPA  1
+#define LV_USE_PPA  0
 #if LV_USE_PPA
     #define LV_USE_PPA_IMG 64
 #endif
