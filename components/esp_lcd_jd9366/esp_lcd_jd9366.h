@@ -102,8 +102,8 @@ esp_err_t esp_lcd_new_panel_jd9366(const esp_lcd_panel_io_handle_t io, const esp
         .dpi_clk_src = MIPI_DSI_DPI_CLK_SRC_DEFAULT,     \
         .dpi_clock_freq_mhz = 78,                        \
         .virtual_channel = 0,                            \
-        .pixel_format = px_format,                       \
-        .num_fbs = 1,                                    \
+        .in_color_format = px_format,                    \
+        .num_fbs = 2,                                    \
         .video_timing = {                                \
             .h_size = 800,                              \
             .v_size = 1280,                               \
@@ -114,7 +114,6 @@ esp_err_t esp_lcd_new_panel_jd9366(const esp_lcd_panel_io_handle_t io, const esp
             .vsync_pulse_width = 8,                      \
             .vsync_front_porch = 140,                     \
         },                                               \
-        .flags.use_dma2d = true,                         \
     }
 
 #ifdef __cplusplus
