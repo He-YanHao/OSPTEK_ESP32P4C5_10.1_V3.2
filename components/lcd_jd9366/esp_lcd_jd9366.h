@@ -97,22 +97,22 @@ esp_err_t esp_lcd_new_panel_jd9366(const esp_lcd_panel_io_handle_t io, const esp
  * @param[in] px_format Pixel format of the panel
  *
  */
-#define JD9366_800_1280_PANEL_60HZ_DPI_CONFIG(px_format) \
+#define JD9366_800_1280_PANEL_60HZ_DPI_CONFIG(px_format, num_fbs) \
     {                                                    \
         .dpi_clk_src = MIPI_DSI_DPI_CLK_SRC_DEFAULT,     \
         .dpi_clock_freq_mhz = 78,                        \
         .virtual_channel = 0,                            \
         .in_color_format = px_format,                    \
-        .num_fbs = 2,                                    \
+        .num_fbs = num_fbs,                              \
         .video_timing = {                                \
-            .h_size = 800,                              \
-            .v_size = 1280,                               \
-            .hsync_back_porch = 28,                     \
-            .hsync_pulse_width = 8,                     \
-            .hsync_front_porch = 40,                    \
+            .h_size = 800,                               \
+            .v_size = 1280,                              \
+            .hsync_back_porch = 28,                      \
+            .hsync_pulse_width = 8,                      \
+            .hsync_front_porch = 40,                     \
             .vsync_back_porch = 20,                      \
             .vsync_pulse_width = 8,                      \
-            .vsync_front_porch = 140,                     \
+            .vsync_front_porch = 140,                    \
         },                                               \
     }
 

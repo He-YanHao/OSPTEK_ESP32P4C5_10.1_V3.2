@@ -1,0 +1,13 @@
+dependencies:
+  idf: '>=5.1'
+  zlib:
+    version: ^1.2.13
+description: libpng — the official PNG reference library, packaged for ESP-IDF
+documentation: http://www.libpng.org/pub/png/pngdocs.html
+issues: https://github.com/espressif/idf-extra-components/issues
+repository: git://github.com/espressif/idf-extra-components.git
+repository_info:
+  commit_sha: 5bbde5828bf26e2aeaa12f9593d6969f51fdb36d
+  path: libpng
+url: https://github.com/espressif/idf-extra-components/tree/master/libpng
+version: 1.6.58~2

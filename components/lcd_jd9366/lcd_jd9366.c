@@ -87,7 +87,7 @@ esp_err_t lcd_jd9366_backlight_set(uint8_t percent)
 }
 
 /* ---------------- 主初始化 ---------------- */
-esp_err_t lcd_jd9366_init(void)
+esp_err_t lcd_jd9366_init(uint8_t num_fbs)
 {
     /* 1) MIPI D-PHY 供电 */
     esp_ldo_channel_config_t ldo_cfg = {
@@ -116,17 +116,17 @@ esp_err_t lcd_jd9366_init(void)
     ESP_RETURN_ON_ERROR(esp_lcd_new_panel_io_dbi(s_dsi_bus, &dbi_cfg, &s_io),
                         TAG, "new DBI IO failed");
 
-    /* 4) DPI 视频通道配置（用驱动头文件里的宏） */
+    /* 4) DPI 视频通道配置，num_fbs 由调用方传入 */
     esp_lcd_dpi_panel_config_t dpi_cfg =
-        JD9366_800_1280_PANEL_60HZ_DPI_CONFIG(LCD_DPI_IN_FORMAT);
+        JD9366_800_1280_PANEL_60HZ_DPI_CONFIG(LCD_DPI_IN_FORMAT, num_fbs);
 
-    /* 5) vendor config：把 DSI 总线 + DPI 配置传进去 */
+    /* 5) vendor config */
     jd9366_vendor_config_t vendor_cfg = {
         .mipi_config = {
             .dsi_bus    = s_dsi_bus,
             .dpi_config = &dpi_cfg,
         },
-        .init_cmds      = NULL,     /* 用驱动内置默认 init 表 */
+        .init_cmds      = NULL,
         .init_cmds_size = 0,
     };
 
@@ -142,26 +142,22 @@ esp_err_t lcd_jd9366_init(void)
     ESP_RETURN_ON_ERROR(esp_lcd_new_panel_jd9366(s_io, &panel_cfg, &s_panel),
                         TAG, "new JD9366 panel failed");
 
-    /* 8) reset + init（会走 esp_lcd_jd9366 的 init 回调） */
+    /* 8) reset + init */
     ESP_RETURN_ON_ERROR(esp_lcd_panel_reset(s_panel), TAG, "panel reset failed");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_init(s_panel),  TAG, "panel init failed");
-    // 开启DMA2D
     ESP_RETURN_ON_ERROR(esp_lcd_dpi_panel_enable_dma2d(s_panel),
                         TAG, "enable dma2d failed");
-    
-    /* 9) 反色/镜像（按需打开） */
-    // ESP_RETURN_ON_ERROR(esp_lcd_panel_invert_color(s_panel, false), TAG, "invert failed");
-    // ESP_RETURN_ON_ERROR(esp_lcd_panel_mirror(s_panel, false, false), TAG, "mirror failed");
 
-    /* 10) 背光 */
+    /* 9) 背光 */
     ESP_RETURN_ON_ERROR(lcd_backlight_init(), TAG, "backlight init failed");
     ESP_RETURN_ON_ERROR(lcd_jd9366_backlight_set(100), TAG, "backlight set failed");
 
-    /* 11) 开显示 */
+    /* 10) 开显示 */
     ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(s_panel, true),
                         TAG, "disp on failed");
 
-    ESP_LOGI(TAG, "lcd jd9366 init ok (%dx%d)", LCD_WIDTH, LCD_HEIGHT);
+    ESP_LOGI(TAG, "lcd jd9366 init ok (%dx%d), fbs=%d",
+             LCD_WIDTH, LCD_HEIGHT, num_fbs);
     return ESP_OK;
 }
 

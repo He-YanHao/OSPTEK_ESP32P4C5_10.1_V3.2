@@ -1456,6 +1456,17 @@ CONFIG_EFUSE_MAX_BLK_LEN=256
 # end of eFuse Bit Manager
 
 #
+# ADC and ADC Calibration
+#
+# default:
+# CONFIG_ADC_ONESHOT_CTRL_FUNC_IN_IRAM is not set
+# default:
+# CONFIG_ADC_CONTINUOUS_ISR_IRAM_SAFE is not set
+# default:
+# CONFIG_ADC_ENABLE_DEBUG_LOG is not set
+# end of ADC and ADC Calibration
+
+#
 # Common ESP-related
 #
 # default:
@@ -1526,6 +1537,13 @@ CONFIG_I2C_MASTER_ISR_HANDLER_IN_IRAM=y
 # default:
 # CONFIG_I2S_ENABLE_DEBUG_LOG is not set
 # end of ESP-Driver:I2S Configurations
+
+#
+# ESP-Driver:JPEG-Codec Configurations
+#
+# default:
+# CONFIG_JPEG_ENABLE_DEBUG_LOG is not set
+# end of ESP-Driver:JPEG-Codec Configurations
 
 #
 # ESP-Driver:LEDC Configurations
@@ -2842,6 +2860,108 @@ CONFIG_SPI_FLASH_ENABLE_ENCRYPTED_READ_WRITE=y
 # end of SPI Flash driver
 
 #
+# IoT Button
+#
+# default:
+CONFIG_BUTTON_PERIOD_TIME_MS=5
+# default:
+CONFIG_BUTTON_DEBOUNCE_TICKS=2
+# default:
+CONFIG_BUTTON_SHORT_PRESS_TIME_MS=180
+# default:
+CONFIG_BUTTON_LONG_PRESS_TIME_MS=1500
+# default:
+CONFIG_BUTTON_LONG_PRESS_HOLD_SERIAL_TIME_MS=20
+# default:
+CONFIG_ADC_BUTTON_MAX_CHANNEL=3
+# default:
+CONFIG_ADC_BUTTON_MAX_BUTTON_PER_CHANNEL=8
+# default:
+CONFIG_ADC_BUTTON_SAMPLE_TIMES=1
+# end of IoT Button
+
+#
+# CMake Utilities
+#
+# default:
+# CONFIG_CU_RELINKER_ENABLE is not set
+# default:
+# CONFIG_CU_DIAGNOSTICS_COLOR_NEVER is not set
+# default:
+CONFIG_CU_DIAGNOSTICS_COLOR_ALWAYS=y
+# default:
+# CONFIG_CU_DIAGNOSTICS_COLOR_AUTO is not set
+# default:
+# CONFIG_CU_GCC_LTO_ENABLE is not set
+# default:
+# CONFIG_CU_GCC_STRING_1BYTE_ALIGN is not set
+# end of CMake Utilities
+
+#
+# ESP LCD TOUCH
+#
+# default:
+CONFIG_ESP_LCD_TOUCH_MAX_POINTS=5
+# default:
+CONFIG_ESP_LCD_TOUCH_MAX_BUTTONS=1
+# end of ESP LCD TOUCH
+
+#
+# ESP LV Decoder
+#
+# default:
+# CONFIG_ESP_LV_DECODER_PJPG_HW_ALPHA_BLEND is not set
+# end of ESP LV Decoder
+
+#
+# ESP LV Adapter
+#
+# default:
+# CONFIG_ESP_LVGL_ADAPTER_ENABLE_FS is not set
+# default:
+# CONFIG_ESP_LVGL_ADAPTER_ENABLE_DECODER is not set
+# default:
+# CONFIG_ESP_LVGL_ADAPTER_PARTIAL_AUX_IMG_CACHE is not set
+# default:
+# CONFIG_ESP_LVGL_ADAPTER_ENABLE_FREETYPE is not set
+# default:
+# CONFIG_ESP_LVGL_ADAPTER_LVGL_THREAD_STACK_IN_PSRAM is not set
+# default:
+# CONFIG_ESP_LVGL_ADAPTER_ENABLE_FPS_STATS is not set
+# default:
+# CONFIG_ESP_LVGL_ADAPTER_ENABLE_BUTTON is not set
+# default:
+# CONFIG_ESP_LVGL_ADAPTER_ENABLE_KNOB is not set
+# end of ESP LV Adapter
+
+#
+# mmap file support format
+#
+# default:
+CONFIG_MMAP_FILE_NAME_LENGTH=16
+# end of mmap file support format
+
+#
+# IOT Knob
+#
+# default:
+CONFIG_KNOB_PERIOD_TIME_MS=3
+# default:
+CONFIG_KNOB_DEBOUNCE_TICKS=2
+# default:
+CONFIG_KNOB_HIGH_LIMIT=1000
+# default:
+CONFIG_KNOB_LOW_LIMIT=-1000
+# end of IOT Knob
+
+#
+# libpng
+#
+# default:
+CONFIG_LIBPNG_PREFER_PSRAM=y
+# end of libpng
+
+#
 # LVGL configuration
 #
 # default:
@@ -2869,15 +2989,10 @@ CONFIG_LV_COLOR_DEPTH=16
 #
 # Memory Settings
 #
-# default:
-CONFIG_LV_USE_BUILTIN_MALLOC=y
-# default:
-# CONFIG_LV_USE_CLIB_MALLOC is not set
-# default:
+# CONFIG_LV_USE_BUILTIN_MALLOC is not set
+CONFIG_LV_USE_CLIB_MALLOC=y
 # CONFIG_LV_USE_MICROPYTHON_MALLOC is not set
-# default:
 # CONFIG_LV_USE_RTTHREAD_MALLOC is not set
-# default:
 # CONFIG_LV_USE_CUSTOM_MALLOC is not set
 # default:
 CONFIG_LV_USE_BUILTIN_STRING=y
@@ -2891,11 +3006,6 @@ CONFIG_LV_USE_BUILTIN_SPRINTF=y
 # CONFIG_LV_USE_CLIB_SPRINTF is not set
 # default:
 # CONFIG_LV_USE_CUSTOM_SPRINTF is not set
-CONFIG_LV_MEM_SIZE_KILOBYTES=4096
-# default:
-CONFIG_LV_MEM_POOL_EXPAND_SIZE_KILOBYTES=0
-# default:
-CONFIG_LV_MEM_ADR=0x0
 # end of Memory Settings
 
 #
