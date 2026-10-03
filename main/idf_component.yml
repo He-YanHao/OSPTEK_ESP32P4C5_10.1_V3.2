@@ -16,5 +16,5 @@ dependencies:
   #   public: true
   lvgl/lvgl:
     version: '*'
-    override_path: '../components/lvgl'
+    override_path: '../components/lvgl__lvgl'
   espressif/esp_lvgl_adapter: '*'

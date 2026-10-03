@@ -215,13 +215,13 @@ dependencies:
   lvgl/lvgl:
     dependencies: []
     source:
-      path: components/lvgl
+      path: components/lvgl__lvgl
       type: local
     version: 9.4.0
 direct_dependencies:
 - espressif/esp_lvgl_adapter
 - idf
 - lvgl/lvgl
-manifest_hash: 6dfeee90151b54e9969453ae68e22aeb692b75cd04282556096c9658b5766d8c
+manifest_hash: 48bfd52b66573f70835dcd81b7ab60a00928c26c5562a0ebb925ece5fee29f57
 target: esp32p4
 version: 3.0.0
