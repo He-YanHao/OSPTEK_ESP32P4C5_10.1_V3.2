@@ -2,20 +2,24 @@
 #include "hal_spi.h"
 #include "freertos_port.h"
 #include <string.h>
+
+#ifndef ESP_AT_SPI_DEBUG
+#define ESP_AT_SPI_DEBUG  0
+#endif
+
+#if ESP_AT_SPI_DEBUG
 #include <stdio.h>
-
-/* ★ 调试日志默认打开，跑通后注释掉下一行 */
-#define ESP_AT_SPI_DEBUG
-
-#ifdef ESP_AT_SPI_DEBUG
 #define AT_LOG(fmt, ...)  printf("[AT_SPI] " fmt "\r\n", ##__VA_ARGS__)
 #else
 #define AT_LOG(fmt, ...)  do {} while (0)
 #endif
 
+#define AT_WAIT_IRQ_MAX_MS  200
+
 static SemaphoreHandle_t s_bus_mutex = NULL;
 static uint8_t           s_send_seq  = 0;
-static uint8_t           s_last_consumed_seq = 0xFF;
+static uint8_t           s_last_consumed_seq = 0;
+static bool              s_seq_valid = false;    /* S2: 首包不被误判 */
 static int               s_inited = 0;
 
 typedef struct {
@@ -59,10 +63,10 @@ int esp_at_spi_init(void)
     if (!s_bus_mutex) return -1;
 
     s_send_seq = 0;
-    s_last_consumed_seq = 0xFF;
+    s_last_consumed_seq = 0;
+    s_seq_valid = false;
     s_pkt.in_progress = false;
     s_inited = 1;
-    AT_LOG("init ok");
     return 0;
 }
 
@@ -71,7 +75,8 @@ int esp_at_spi_reset_and_wait_ready(uint32_t timeout_ms)
     hal_c5_reset();
     s_pkt.in_progress = false;
     s_send_seq = 0;
-    s_last_consumed_seq = 0xFF;
+    s_last_consumed_seq = 0;
+    s_seq_valid = false;
     return hal_spi_wait_irq(timeout_ms);
 }
 
@@ -81,10 +86,10 @@ int esp_at_spi_wait_irq(uint32_t timeout_ms)
 }
 
 /* ============================================================
- * 写：WRBUF → 等 IRQ → RDBUF 确认 → WRDMA(send_len) → WR_END
- *
- * ★ 修复核心：WRBUF 后必须等 IRQ，再查 RDBUF。
- *   C5 的 RDBUF 更新滞后于 IRQ，如果只轮询 RDBUF，会读到旧状态。
+ * 写
+ *   S1: WRDMA 成功后立刻累加 done；WR_END 失败只记错不重发
+ *   S3: 内部等待超时按剩余时间裁剪
+ *   P6: request 失败不递增 seq
  * ============================================================ */
 int esp_at_spi_write(const uint8_t *data, size_t len, uint32_t timeout_ms)
 {
@@ -96,41 +101,29 @@ int esp_at_spi_write(const uint8_t *data, size_t len, uint32_t timeout_ms)
     TickType_t to    = pdMS_TO_TICKS(timeout_ms);
 
     while (done < len) {
-        if ((xTaskGetTickCount() - start) >= to) {
-            AT_LOG("write timeout %u/%u", (unsigned)done, (unsigned)len);
-            break;
-        }
+        TickType_t elapsed = xTaskGetTickCount() - start;
+        if (elapsed >= to) break;
 
         size_t chunk = len - done;
         if (chunk > SPI_AT_MAX_PAYLOAD) chunk = SPI_AT_MAX_PAYLOAD;
 
-        s_send_seq = (s_send_seq + 1) & 0xFF;
-        if (at_request_write(s_send_seq, (uint16_t)chunk) != 0) {
-            AT_LOG("WRBUF fail seq=%u", s_send_seq);
+        uint8_t next_seq = (s_send_seq + 1) & 0xFF;
+        if (at_request_write(next_seq, (uint16_t)chunk) != 0) {
             vTaskDelay(pdMS_TO_TICKS(5));
-            continue;
+            continue;   /* seq 未变，下次重试同一 seq */
         }
+        s_send_seq = next_seq;
 
-        /* ★ 关键修复：等 IRQ。C5 收到 WRBUF 后会拉 IRQ 通知状态已更新 */
-        if (hal_spi_wait_irq(200) != 0) {
-            AT_LOG("no IRQ after WRBUF seq=%u", s_send_seq);
-            break;
-        }
+        /* S3: 剩余时间裁剪 */
+        TickType_t remain = to - (xTaskGetTickCount() - start);
+        uint32_t remain_ms = (uint32_t)(remain * portTICK_PERIOD_MS);
+        if (remain_ms > AT_WAIT_IRQ_MAX_MS) remain_ms = AT_WAIT_IRQ_MAX_MS;
 
-        /* 再查 RDBUF，此时状态是最新的 */
+        if (hal_spi_wait_irq(remain_ms) != 0) break;
+
         spi_recv_opt_t opt;
-        if (at_query_slave(&opt) != 0) {
-            AT_LOG("query fail after IRQ");
-            break;
-        }
-
-        AT_LOG("WRBUF resp: direct=%u seq=%u len=%u",
-               opt.direct, opt.seq_num, opt.transmit_len);
-
-        if (opt.direct != SPI_DIR_WRITE) {
-            AT_LOG("direct=%u not WRITE", opt.direct);
-            break;
-        }
+        if (at_query_slave(&opt) != 0) break;
+        if (opt.direct != SPI_DIR_WRITE) break;
 
         size_t send_len = (chunk < opt.transmit_len) ? chunk : opt.transmit_len;
         if (send_len == 0 || send_len > SPI_AT_MAX_PAYLOAD) {
@@ -139,16 +132,17 @@ int esp_at_spi_write(const uint8_t *data, size_t len, uint32_t timeout_ms)
         }
 
         if (at_spi_xfer(CMD_HD_WRDMA_REG, 0x00, data + done, NULL, send_len) != 0) {
-            AT_LOG("WRDMA fail");
             break;
         }
-        if (at_spi_xfer(CMD_HD_WR_END_REG, 0x00, NULL, NULL, 0) != 0) {
-            AT_LOG("WR_END fail");
-            break;
-        }
-
-        AT_LOG("sent %u bytes (seq=%u)", (unsigned)send_len, s_send_seq);
+        /* S1: WRDMA 已成功，无论 WR_END 结果如何都不重发这段 */
         done += send_len;
+
+        if (at_spi_xfer(CMD_HD_WR_END_REG, 0x00, NULL, NULL, 0) != 0) {
+            vTaskDelay(pdMS_TO_TICKS(1));
+            if (at_spi_xfer(CMD_HD_WR_END_REG, 0x00, NULL, NULL, 0) != 0) {
+                break;   /* WR_END 两次失败，放弃本轮；seq 与数据已推进 */
+            }
+        }
     }
 
     xSemaphoreGive(s_bus_mutex);
@@ -156,8 +150,8 @@ int esp_at_spi_write(const uint8_t *data, size_t len, uint32_t timeout_ms)
 }
 
 /* ============================================================
- * 读：RDBUF → RDDMA → INT0
- *   seq 去重防止同一包反复读
+ * 读
+ *   S2: 用 s_seq_valid 标志，首包不被误判
  * ============================================================ */
 int esp_at_spi_read(uint8_t *buf, size_t buf_size)
 {
@@ -169,24 +163,16 @@ int esp_at_spi_read(uint8_t *buf, size_t buf_size)
 
     if (!s_pkt.in_progress) {
         spi_recv_opt_t opt;
-        if (at_query_slave(&opt) != 0) {
-            AT_LOG("read: query fail");
-            goto done;
-        }
-        if (opt.direct != SPI_DIR_READ || opt.transmit_len == 0) {
-            goto done;
-        }
+        if (at_query_slave(&opt) != 0) goto done;
+        if (opt.direct != SPI_DIR_READ || opt.transmit_len == 0) goto done;
 
-        if (opt.seq_num == s_last_consumed_seq) {
-            AT_LOG("read: dup seq=%u, skip", opt.seq_num);
-            goto done;
-        }
+        /* S2: 只有已经消费过至少一包，seq 去重才有意义 */
+        if (s_seq_valid && opt.seq_num == s_last_consumed_seq) goto done;
 
         s_pkt.seq         = opt.seq_num;
         s_pkt.total_len   = opt.transmit_len;
         s_pkt.read_len    = 0;
         s_pkt.in_progress = true;
-        AT_LOG("read: new pkt seq=%u len=%u", s_pkt.seq, s_pkt.total_len);
     }
 
     size_t remain  = s_pkt.total_len - s_pkt.read_len;
@@ -197,7 +183,6 @@ int esp_at_spi_read(uint8_t *buf, size_t buf_size)
         size_t c = to_read - done;
         if (c > SPI_AT_MAX_PAYLOAD) c = SPI_AT_MAX_PAYLOAD;
         if (at_spi_xfer(CMD_HD_RDDMA_REG, 0x00, NULL, buf + done, c) != 0) {
-            AT_LOG("RDDMA fail");
             at_spi_xfer(CMD_HD_INT0_REG, 0x00, NULL, NULL, 0);
             s_pkt.in_progress = false;
             error = true;
@@ -212,14 +197,13 @@ int esp_at_spi_read(uint8_t *buf, size_t buf_size)
         if (at_spi_xfer(CMD_HD_INT0_REG, 0x00, NULL, NULL, 0) != 0) {
             vTaskDelay(pdMS_TO_TICKS(1));
             if (at_spi_xfer(CMD_HD_INT0_REG, 0x00, NULL, NULL, 0) != 0) {
-                AT_LOG("INT0 fail");
                 error = true;
                 goto done;
             }
         }
         s_last_consumed_seq = s_pkt.seq;
+        s_seq_valid = true;
         s_pkt.in_progress = false;
-        AT_LOG("read: pkt seq=%u done, %d bytes", s_last_consumed_seq, ret);
     }
 
 done:

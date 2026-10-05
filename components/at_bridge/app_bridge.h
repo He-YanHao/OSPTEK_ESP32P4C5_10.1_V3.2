@@ -17,7 +17,7 @@ extern "C" {
 #endif
 
 #ifndef APP_BRIDGE_SB_SIZE
-#define APP_BRIDGE_SB_SIZE      (64 * 1024)
+#define APP_BRIDGE_SB_SIZE      (32 * 1024)
 #endif
 
 int app_bridge_start(void);

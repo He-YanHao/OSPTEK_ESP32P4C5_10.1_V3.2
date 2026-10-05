@@ -1,12 +1,12 @@
 #include "hal_spi.h"
 #include "driver/spi_master.h"
 #include "driver/gpio.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include <string.h>
-#include <stdlib.h>
 
 #define PIN_SPI_CS          17
 #define PIN_SPI_MISO        14
@@ -16,6 +16,8 @@
 #define PIN_C5_CHIP_PU      54
 #define SPI_CLK_HZ          (500 * 1000)
 #define SPI_MAX_XFER_SZ     4096
+#define SPI_HDR_LEN         3
+#define SPI_STACK_BUF_MAX   64      /* 小于此长度用栈 buf，不 malloc */
 
 static const char *TAG = "HAL_SPI";
 static spi_device_handle_t s_spi_dev = NULL;
@@ -78,7 +80,12 @@ int hal_spi_init(void)
     s_irq_sem = xSemaphoreCreateCounting(16, 0);
     if (!s_irq_sem) return -1;
 
-    gpio_install_isr_service(0);
+    /* S5: gpio_install_isr_service 幂等，允许外部已安装 */
+    esp_err_t e = gpio_install_isr_service(0);
+    if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(TAG, "gpio_install_isr_service failed: %s", esp_err_to_name(e));
+        return -1;
+    }
     if (gpio_isr_handler_add(PIN_SPI_IRQ, gpio_irq_isr, NULL) != ESP_OK) {
         return -1;
     }
@@ -110,24 +117,39 @@ void hal_spi_clear_irq(void)
     while (xSemaphoreTake(s_irq_sem, 0) == pdTRUE) { }
 }
 
+/*
+ * S4: 小事务走栈 buf（绝大数情况：3 字节头 + 4 字节 payload = 7）
+ *     大事务走 heap_caps_malloc(DMA)，避免堆碎片干扰非 DMA 分配
+ */
 int hal_spi_transfer(uint8_t cmd, uint8_t addr,
                      const uint8_t *tx, uint8_t *rx, size_t len)
 {
     if (!s_spi_dev) return -1;
+    if (len + SPI_HDR_LEN > SPI_MAX_XFER_SZ) return -1;
 
-    size_t total = 3 + len;
-    uint8_t *tx_buf = malloc(total);
-    uint8_t *rx_buf = rx ? malloc(total) : NULL;
-    if (!tx_buf || (rx && !rx_buf)) {
-        free(tx_buf); free(rx_buf);
-        return -1;
+    size_t total = SPI_HDR_LEN + len;
+
+    uint8_t  stack_tx[SPI_STACK_BUF_MAX];
+    uint8_t  stack_rx[SPI_STACK_BUF_MAX];
+    uint8_t *tx_buf = stack_tx;
+    uint8_t *rx_buf = rx ? stack_rx : NULL;
+    bool     heap_alloc = false;
+
+    if (total > SPI_STACK_BUF_MAX) {
+        tx_buf = (uint8_t *)heap_caps_malloc(total, MALLOC_CAP_DMA);
+        if (!tx_buf) return -1;
+        if (rx) {
+            rx_buf = (uint8_t *)heap_caps_malloc(total, MALLOC_CAP_DMA);
+            if (!rx_buf) { heap_caps_free(tx_buf); return -1; }
+        }
+        heap_alloc = true;
     }
 
     tx_buf[0] = cmd;
     tx_buf[1] = addr;
-    tx_buf[2] = 0xFF;
-    if (tx && len) memcpy(tx_buf + 3, tx, len);
-    else if (len) memset(tx_buf + 3, 0xFF, len);
+    tx_buf[2] = 0xFF;   /* 协议占位字节 */
+    if (tx && len)      memcpy(tx_buf + SPI_HDR_LEN, tx, len);
+    else if (len)       memset(tx_buf + SPI_HDR_LEN, 0xFF, len);
 
     spi_transaction_t t = {
         .length    = total * 8,
@@ -135,10 +157,14 @@ int hal_spi_transfer(uint8_t cmd, uint8_t addr,
         .rx_buffer = rx_buf,
     };
     esp_err_t ret = spi_device_transmit(s_spi_dev, &t);
-    if (ret == ESP_OK && rx && rx_buf) memcpy(rx, rx_buf + 3, len);
+    if (ret == ESP_OK && rx && rx_buf) {
+        memcpy(rx, rx_buf + SPI_HDR_LEN, len);
+    }
 
-    free(tx_buf);
-    free(rx_buf);
+    if (heap_alloc) {
+        heap_caps_free(tx_buf);
+        if (rx_buf) heap_caps_free(rx_buf);
+    }
     return (ret == ESP_OK) ? 0 : -1;
 }
 

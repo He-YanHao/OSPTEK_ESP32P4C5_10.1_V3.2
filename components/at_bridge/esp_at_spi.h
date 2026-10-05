@@ -20,6 +20,7 @@ extern "C" {
 #define WRBUF_START_ADDR    0x00
 #define RDBUF_START_ADDR    0x04
 
+/* direct 字段值 */
 #define SPI_DIR_NULL        0x00
 #define SPI_DIR_READ        0x01
 #define SPI_DIR_WRITE       0x02
@@ -27,6 +28,7 @@ extern "C" {
 #define SPI_SEND_MAGIC      0xFE
 #define SPI_AT_MAX_PAYLOAD  4092
 
+/* 协议包结构（小端） */
 typedef struct {
     uint8_t  magic;
     uint8_t  send_seq;
@@ -38,6 +40,12 @@ typedef struct {
     uint8_t  seq_num;
     uint16_t transmit_len;
 } __attribute__((packed)) spi_recv_opt_t;
+
+/*
+ * 上下文约束：
+ *   所有 read/write 必须从同一 FreeRTOS 任务调用
+ *   （内部用 s_bus_mutex 串行化 SPI 事务，但状态机假设单调用者）
+ */
 
 int esp_at_spi_init(void);
 int esp_at_spi_reset_and_wait_ready(uint32_t timeout_ms);
