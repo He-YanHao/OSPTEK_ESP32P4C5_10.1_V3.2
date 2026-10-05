@@ -9,9 +9,10 @@
 #define P4_UART_RX_PIN    51
 #define P4_UART_BAUD      230400
 #define P4_UART_RX_BUF    (8 * 1024)
-#define P4_UART_TX_BUF    (32 * 1024)   /* 32KB，够用，不搞 256KB 掩盖问题 */
+#define P4_UART_TX_BUF    (32 * 1024)
 
 #define WRITE_CHUNK       256
+#define WRITE_STALL_MS    500
 
 static const char *TAG = "HAL_UART";
 static int s_uart_inited = 0;
@@ -49,21 +50,30 @@ int hal_uart_read(uint8_t *buf, size_t len, uint32_t timeout_ms)
 }
 
 /*
- * 阻塞式写入：TX buffer 满时 vTaskDelay 等待，直到全部写完。
- * 无丢弃，无忙等。
+ * 契约：
+ *   = len  全部写完
+ *   < len  部分写完（无进展超时或错误）
+ *   < 0    无法写入
+ * 不主动丢弃数据；TX 满时 vTaskDelay 等，500ms 无进展则返回部分。
  */
 int hal_uart_write(const uint8_t *buf, size_t len)
 {
     size_t done = 0;
+    TickType_t last_progress = xTaskGetTickCount();
+    const TickType_t stall_to = pdMS_TO_TICKS(WRITE_STALL_MS);
 
     while (done < len) {
         size_t free_space = 0;
         if (uart_get_tx_buffer_free_size(P4_UART_PORT, &free_space) != ESP_OK) {
-            free_space = WRITE_CHUNK;
+            free_space = 32;   /* 保守 fallback */
         }
 
         if (free_space < 32) {
-            /* 缓冲不足：让出 CPU，等 UART 排空 */
+            if ((xTaskGetTickCount() - last_progress) >= stall_to) {
+                ESP_LOGW(TAG, "uart_write stalled: %u/%u",
+                         (unsigned)done, (unsigned)len);
+                break;
+            }
             vTaskDelay(pdMS_TO_TICKS(5));
             continue;
         }
@@ -78,6 +88,7 @@ int hal_uart_write(const uint8_t *buf, size_t len)
             break;
         }
         done += w;
+        last_progress = xTaskGetTickCount();
     }
     return (int)done;
 }

@@ -7,6 +7,7 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include <string.h>
+#include "esp_attr.h"
 
 #define PIN_SPI_CS          17
 #define PIN_SPI_MISO        14
@@ -129,8 +130,9 @@ int hal_spi_transfer(uint8_t cmd, uint8_t addr,
 
     size_t total = SPI_HDR_LEN + len;
 
-    uint8_t  stack_tx[SPI_STACK_BUF_MAX];
-    uint8_t  stack_rx[SPI_STACK_BUF_MAX];
+    /* ★ DMA 对齐：栈缓冲加 WORD_ALIGNED_ATTR */
+    WORD_ALIGNED_ATTR uint8_t stack_tx[SPI_STACK_BUF_MAX];
+    WORD_ALIGNED_ATTR uint8_t stack_rx[SPI_STACK_BUF_MAX];
     uint8_t *tx_buf = stack_tx;
     uint8_t *rx_buf = rx ? stack_rx : NULL;
     bool     heap_alloc = false;

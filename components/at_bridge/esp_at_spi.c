@@ -14,12 +14,13 @@
 #define AT_LOG(fmt, ...)  do {} while (0)
 #endif
 
-#define AT_WAIT_IRQ_MAX_MS  200
+#define AT_WAIT_IRQ_MAX_MS   200
+#define AT_RETRY_BACKOFF_MS  1
 
 static SemaphoreHandle_t s_bus_mutex = NULL;
 static uint8_t           s_send_seq  = 0;
 static uint8_t           s_last_consumed_seq = 0;
-static bool              s_seq_valid = false;    /* S2: 首包不被误判 */
+static bool              s_seq_valid = false;
 static int               s_inited = 0;
 
 typedef struct {
@@ -87,9 +88,8 @@ int esp_at_spi_wait_irq(uint32_t timeout_ms)
 
 /* ============================================================
  * 写
- *   S1: WRDMA 成功后立刻累加 done；WR_END 失败只记错不重发
- *   S3: 内部等待超时按剩余时间裁剪
- *   P6: request 失败不递增 seq
+ *   F1: IRQ 超时不放弃，剩余预算内继续重试
+ *   F2: WR_END 双失败时 done -= send_len，返回部分长度
  * ============================================================ */
 int esp_at_spi_write(const uint8_t *data, size_t len, uint32_t timeout_ms)
 {
@@ -103,46 +103,61 @@ int esp_at_spi_write(const uint8_t *data, size_t len, uint32_t timeout_ms)
     while (done < len) {
         TickType_t elapsed = xTaskGetTickCount() - start;
         if (elapsed >= to) break;
+        TickType_t remain = to - elapsed;
 
         size_t chunk = len - done;
         if (chunk > SPI_AT_MAX_PAYLOAD) chunk = SPI_AT_MAX_PAYLOAD;
 
         uint8_t next_seq = (s_send_seq + 1) & 0xFF;
         if (at_request_write(next_seq, (uint16_t)chunk) != 0) {
-            vTaskDelay(pdMS_TO_TICKS(5));
-            continue;   /* seq 未变，下次重试同一 seq */
+            vTaskDelay(pdMS_TO_TICKS(AT_RETRY_BACKOFF_MS));
+            continue;
         }
         s_send_seq = next_seq;
 
-        /* S3: 剩余时间裁剪 */
-        TickType_t remain = to - (xTaskGetTickCount() - start);
         uint32_t remain_ms = (uint32_t)(remain * portTICK_PERIOD_MS);
         if (remain_ms > AT_WAIT_IRQ_MAX_MS) remain_ms = AT_WAIT_IRQ_MAX_MS;
 
-        if (hal_spi_wait_irq(remain_ms) != 0) break;
+        if (hal_spi_wait_irq(remain_ms) != 0) {
+            /* F1: IRQ 超时不放弃，回到循环顶部检查剩余预算 */
+            AT_LOG("wait_irq timeout, retry");
+            vTaskDelay(pdMS_TO_TICKS(AT_RETRY_BACKOFF_MS));
+            continue;
+        }
 
         spi_recv_opt_t opt;
-        if (at_query_slave(&opt) != 0) break;
-        if (opt.direct != SPI_DIR_WRITE) break;
+        if (at_query_slave(&opt) != 0) {
+            vTaskDelay(pdMS_TO_TICKS(AT_RETRY_BACKOFF_MS));
+            continue;
+        }
+        if (opt.direct != SPI_DIR_WRITE) {
+            /* C5 有 READ 数据要发，让路 */
+            AT_LOG("slave not writable: direct=%u", opt.direct);
+            break;
+        }
 
         size_t send_len = (chunk < opt.transmit_len) ? chunk : opt.transmit_len;
         if (send_len == 0 || send_len > SPI_AT_MAX_PAYLOAD) {
-            vTaskDelay(pdMS_TO_TICKS(5));
+            vTaskDelay(pdMS_TO_TICKS(AT_RETRY_BACKOFF_MS));
             continue;
         }
 
         if (at_spi_xfer(CMD_HD_WRDMA_REG, 0x00, data + done, NULL, send_len) != 0) {
-            break;
+            vTaskDelay(pdMS_TO_TICKS(AT_RETRY_BACKOFF_MS));
+            continue;   /* WRDMA 失败，重试同一段 */
         }
-        /* S1: WRDMA 已成功，无论 WR_END 结果如何都不重发这段 */
-        done += send_len;
 
+        /* F2: WRDMA 成功但 WR_END 失败 = 这段未提交，退回 done */
         if (at_spi_xfer(CMD_HD_WR_END_REG, 0x00, NULL, NULL, 0) != 0) {
-            vTaskDelay(pdMS_TO_TICKS(1));
+            vTaskDelay(pdMS_TO_TICKS(AT_RETRY_BACKOFF_MS));
             if (at_spi_xfer(CMD_HD_WR_END_REG, 0x00, NULL, NULL, 0) != 0) {
-                break;   /* WR_END 两次失败，放弃本轮；seq 与数据已推进 */
+                AT_LOG("WR_END failed twice, rollback %u bytes",
+                       (unsigned)send_len);
+                break;   /* done 未累加，上层会重试这段 */
             }
         }
+
+        done += send_len;
     }
 
     xSemaphoreGive(s_bus_mutex);
@@ -151,7 +166,7 @@ int esp_at_spi_write(const uint8_t *data, size_t len, uint32_t timeout_ms)
 
 /* ============================================================
  * 读
- *   S2: 用 s_seq_valid 标志，首包不被误判
+ *   S3: INT0 失败时不更新 s_last_consumed_seq
  * ============================================================ */
 int esp_at_spi_read(uint8_t *buf, size_t buf_size)
 {
@@ -166,7 +181,6 @@ int esp_at_spi_read(uint8_t *buf, size_t buf_size)
         if (at_query_slave(&opt) != 0) goto done;
         if (opt.direct != SPI_DIR_READ || opt.transmit_len == 0) goto done;
 
-        /* S2: 只有已经消费过至少一包，seq 去重才有意义 */
         if (s_seq_valid && opt.seq_num == s_last_consumed_seq) goto done;
 
         s_pkt.seq         = opt.seq_num;
@@ -194,15 +208,29 @@ int esp_at_spi_read(uint8_t *buf, size_t buf_size)
     ret = (int)to_read;
 
     if (s_pkt.read_len >= s_pkt.total_len) {
-        if (at_spi_xfer(CMD_HD_INT0_REG, 0x00, NULL, NULL, 0) != 0) {
+        bool int0_ok = false;
+        if (at_spi_xfer(CMD_HD_INT0_REG, 0x00, NULL, NULL, 0) == 0) {
+            int0_ok = true;
+        } else {
             vTaskDelay(pdMS_TO_TICKS(1));
-            if (at_spi_xfer(CMD_HD_INT0_REG, 0x00, NULL, NULL, 0) != 0) {
-                error = true;
-                goto done;
+            if (at_spi_xfer(CMD_HD_INT0_REG, 0x00, NULL, NULL, 0) == 0) {
+                int0_ok = true;
             }
         }
-        s_last_consumed_seq = s_pkt.seq;
-        s_seq_valid = true;
+
+        if (int0_ok) {
+            s_last_consumed_seq = s_pkt.seq;
+            s_seq_valid = true;
+        } else {
+            /* S3: INT0 失败，不更新 last_consumed。
+             * 清 in_progress 避免卡死。
+             * 下次 read 会看到同一 seq，因为 s_last_consumed 未更新，
+             * 会重新进入 in_progress 分支尝试重读——但 C5 侧此时可能
+             * 已推进。为兼容此情况，同时重置 s_seq_valid 让去重失效一次。 */
+            AT_LOG("INT0 failed, will resync on next read");
+            s_seq_valid = false;
+            error = true;
+        }
         s_pkt.in_progress = false;
     }
 
