@@ -3,10 +3,9 @@
 #include "hal_uart.h"
 #include "freertos_port.h"
 #include <string.h>
+#include <stdio.h>
 
-#ifndef BR_LOG
-#define BR_LOG(fmt, ...)  do {} while (0)
-#endif
+#define BR_LOG(fmt, ...)  printf("[BRIDGE] " fmt "\r\n", ##__VA_ARGS__)
 
 #define SPI_TASK_STACK   6144
 #define UTX_TASK_STACK   4096
@@ -35,10 +34,10 @@ static void uart_tx_task(void *arg)
 }
 
 /* ============================================================
- * SPI 任务
- * ★ 核心修复：不依赖 IRQ 触发（C5 的 IRQ 可能滞后/漏发）。
- *   每轮"等 IRQ 最多 20ms"+ 主动读一次。
- *   seq 去重保证同一包不会被重复读。
+ * SPI 任务：单任务顺序处理读和写，避免 IRQ 争抢
+ *
+ * ★ 修复：方向 1 的 wait_irq 判返回值。有 IRQ 才读；没 IRQ 直接
+ *   进写路径。这样写路径的 IRQ 不会被读路径抢走。
  * ============================================================ */
 static void spi_task(void *arg)
 {
@@ -59,22 +58,22 @@ static void spi_task(void *arg)
 
     while (1) {
         /* ---------- 方向 1：C5 → UART ----------
-         * 等 IRQ（节流），但不管有没有都尝试读。
-         * 循环读到 esp_at_spi_read 返回 0 为止（seq 去重保证不刷屏）。 */
-        esp_at_spi_wait_irq(20);   /* 不判返回值 */
-
-        for (int i = 0; i < 16; i++) {
-            int r = esp_at_spi_read(rx, APP_BRIDGE_SPI_CHUNK);
-            if (r == 0) break;
-            if (r < 0) {
-                BR_LOG("spi_read err");
-                break;
+         * ★ 有 IRQ 才尝试读。读不到就落写路径。 */
+        if (esp_at_spi_wait_irq(20) == 0) {
+            for (int i = 0; i < 16; i++) {
+                int r = esp_at_spi_read(rx, APP_BRIDGE_SPI_CHUNK);
+                if (r == 0) break;
+                if (r < 0) {
+                    BR_LOG("spi_read err");
+                    break;
+                }
+                size_t sent = xStreamBufferSend(s_s2u_sb, rx, r,
+                                                pdMS_TO_TICKS(200));
+                if (sent != (size_t)r) {
+                    BR_LOG("s2u ovf %u/%d", (unsigned)sent, r);
+                }
             }
-            size_t sent = xStreamBufferSend(s_s2u_sb, rx, r,
-                                            pdMS_TO_TICKS(200));
-            if (sent != (size_t)r) {
-                BR_LOG("s2u ovf %u/%d", (unsigned)sent, r);
-            }
+            continue;   /* 处理完读路径，回顶部 */
         }
 
         /* ---------- 方向 2：UART → C5 ---------- */
@@ -96,7 +95,9 @@ static void spi_task(void *arg)
 
         int n = hal_uart_read(tx, APP_BRIDGE_UART_CHUNK, 20);
         if (n > 0) {
+            BR_LOG("uart_read %d bytes", n);
             int w = esp_at_spi_write(tx, n, 2000);
+            BR_LOG("spi_write ret=%d/%d", w, n);
             if (w < 0) w = 0;
             if (w < n) {
                 size_t rest = (size_t)(n - w);
@@ -130,7 +131,7 @@ int app_bridge_start(void)
             for (int i = 0; i < 8; i++) {
                 int r = esp_at_spi_read(buf, APP_BRIDGE_SPI_CHUNK);
                 if (r <= 0) break;
-                BR_LOG("ready read %d", r);
+                BR_LOG("ready read %d bytes", r);
                 hal_uart_write(buf, r);
             }
             vPortFree(buf);
