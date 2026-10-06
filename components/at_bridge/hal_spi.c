@@ -9,22 +9,44 @@
 #include <string.h>
 #include "esp_attr.h"
 
+/* ============================================================
+ *  P4-C5 硬件连接定义
+ * ============================================================
+ * 如更换板子，只需改这里的引脚号。
+ */
 #define PIN_SPI_CS          17
 #define PIN_SPI_MISO        14
 #define PIN_SPI_MOSI        19
 #define PIN_SPI_CLK         18
-#define PIN_SPI_IRQ         15
-#define PIN_C5_CHIP_PU      54
-#define SPI_CLK_HZ          (500 * 1000)
+#define PIN_SPI_IRQ         15      /* C5 用来通知 P4 "有事件"的握手线 */
+#define PIN_C5_CHIP_PU      54      /* C5 电源使能（高电平有效） */
+
+/* SPI 时钟：400kHz
+ * 说明：
+ *   - 500kHz 曾稳定工作，但 400kHz 给 C5 更多时序余量
+ *   - C5 在 WiFi 活跃时 CPU 很忙，SPI 从机响应可能延迟
+ *   - 400kHz 是稳定与速度的折中 */
+#define SPI_CLK_HZ          (400 * 1000)
+
+/* 单次 SPI 事务最大长度（含 3 字节头） */
 #define SPI_MAX_XFER_SZ     4096
+
+/* 3 字节协议头：[CMD][ADDR][0xFF] */
 #define SPI_HDR_LEN         3
-#define SPI_STACK_BUF_MAX   64      /* 小于此长度用栈 buf，不 malloc */
+
+/* 阈值：小于此长度用栈缓冲，避免小事务频繁 malloc */
+#define SPI_STACK_BUF_MAX   64
 
 static const char *TAG = "HAL_SPI";
 static spi_device_handle_t s_spi_dev = NULL;
-static SemaphoreHandle_t   s_irq_sem = NULL;
+static SemaphoreHandle_t   s_irq_sem = NULL;   /* 计数信号量，最多累积 16 次 IRQ */
 static int                 s_inited  = 0;
 
+/*
+ * GPIO IRQ 中断服务程序。
+ * C5 拉高 IRQ 线时触发，只做一件事：给信号量（唤醒等待者）。
+ * 不做任何 SPI 操作（IRAM 上下文，禁止耗时调用）。
+ */
 static void IRAM_ATTR gpio_irq_isr(void *arg)
 {
     (void)arg;
@@ -33,16 +55,23 @@ static void IRAM_ATTR gpio_irq_isr(void *arg)
     if (hp) portYIELD_FROM_ISR();
 }
 
+/*
+ * 初始化 SPI 主机 + IRQ + C5 电源引脚。
+ * 幂等：第二次调用直接返回 0。
+ * 返回：0 成功，-1 失败。
+ */
 int hal_spi_init(void)
 {
     if (s_inited) return 0;
 
+    /* 复位引脚，避免被其他外设占用 */
     gpio_reset_pin(PIN_SPI_CS);
     gpio_reset_pin(PIN_SPI_MISO);
     gpio_reset_pin(PIN_SPI_MOSI);
     gpio_reset_pin(PIN_SPI_CLK);
     gpio_reset_pin(PIN_SPI_IRQ);
 
+    /* SPI 总线初始化 */
     spi_bus_config_t buscfg = {
         .mosi_io_num     = PIN_SPI_MOSI,
         .miso_io_num     = PIN_SPI_MISO,
@@ -56,19 +85,21 @@ int hal_spi_init(void)
         return -1;
     }
 
+    /* SPI 从设备（C5）配置：Mode 0，CS 由硬件控制 */
     spi_device_interface_config_t devcfg = {
         .clock_speed_hz   = SPI_CLK_HZ,
-        .mode             = 0,
+        .mode             = 0,                  /* CPOL=0, CPHA=0 */
         .spics_io_num     = PIN_SPI_CS,
         .queue_size       = 3,
-        .cs_ena_pretrans  = 4,
-        .cs_ena_posttrans = 4,
+        .cs_ena_pretrans  = 4,                  /* CS 建立：4 个时钟周期 */
+        .cs_ena_posttrans = 4,                  /* CS 保持：4 个时钟周期 */
     };
     if (spi_bus_add_device(SPI2_HOST, &devcfg, &s_spi_dev) != ESP_OK) {
         ESP_LOGE(TAG, "add device failed");
         return -1;
     }
 
+    /* IRQ 引脚：输入 + 上拉，上升沿触发（C5 拉高表示有事件） */
     gpio_config_t irq_cfg = {
         .pin_bit_mask = 1ULL << PIN_SPI_IRQ,
         .mode         = GPIO_MODE_INPUT,
@@ -78,10 +109,11 @@ int hal_spi_init(void)
     };
     if (gpio_config(&irq_cfg) != ESP_OK) return -1;
 
+    /* 计数信号量：最多累积 16 个 IRQ，避免背靠背中断丢失 */
     s_irq_sem = xSemaphoreCreateCounting(16, 0);
     if (!s_irq_sem) return -1;
 
-    /* S5: gpio_install_isr_service 幂等，允许外部已安装 */
+    /* 安装 GPIO ISR 服务（幂等，允许外部已安装） */
     esp_err_t e = gpio_install_isr_service(0);
     if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) {
         ESP_LOGE(TAG, "gpio_install_isr_service failed: %s", esp_err_to_name(e));
@@ -91,6 +123,7 @@ int hal_spi_init(void)
         return -1;
     }
 
+    /* C5 电源引脚：输出，默认拉高使能 */
     gpio_config_t pu_cfg = {
         .pin_bit_mask = 1ULL << PIN_C5_CHIP_PU,
         .mode         = GPIO_MODE_OUTPUT,
@@ -105,6 +138,11 @@ int hal_spi_init(void)
     return 0;
 }
 
+/*
+ * 等 C5 的 IRQ。
+ * timeout_ms = 0 时立即返回（非阻塞）。
+ * 返回：0 收到；<0 超时。
+ */
 int hal_spi_wait_irq(uint32_t timeout_ms)
 {
     if (!s_irq_sem) return -1;
@@ -112,15 +150,29 @@ int hal_spi_wait_irq(uint32_t timeout_ms)
     return (xSemaphoreTake(s_irq_sem, ticks) == pdTRUE) ? 0 : -1;
 }
 
+/*
+ * 清空 IRQ 计数（复位 C5 后调用，避免旧信号残留）。
+ */
 void hal_spi_clear_irq(void)
 {
     if (!s_irq_sem) return;
-    while (xSemaphoreTake(s_irq_sem, 0) == pdTRUE) { }
+    while (xSemaphoreTake(s_irq_sem, 0) == pdTRUE) { /* drain */ }
 }
 
 /*
- * S4: 小事务走栈 buf（绝大数情况：3 字节头 + 4 字节 payload = 7）
- *     大事务走 heap_caps_malloc(DMA)，避免堆碎片干扰非 DMA 分配
+ * 单次 SPI 事务。
+ *
+ * 事务格式：[CMD][ADDR][0xFF] + payload
+ * 整个事务在一次 CS 拉低内完成。
+ *
+ * 内存策略：
+ *   - total <= 64：用栈缓冲（绝大多数控制命令，3+4=7 字节）
+ *   - total >  64：用 heap_caps_malloc(DMA)（大块 RDDMA 读）
+ *
+ * DMA 对齐：
+ *   栈缓冲加 WORD_ALIGNED_ATTR 保证 4 字节对齐
+ *
+ * 返回：0 成功；<0 失败。
  */
 int hal_spi_transfer(uint8_t cmd, uint8_t addr,
                      const uint8_t *tx, uint8_t *rx, size_t len)
@@ -130,13 +182,14 @@ int hal_spi_transfer(uint8_t cmd, uint8_t addr,
 
     size_t total = SPI_HDR_LEN + len;
 
-    /* ★ DMA 对齐：栈缓冲加 WORD_ALIGNED_ATTR */
+    /* 小事务走栈，避免频繁 malloc */
     WORD_ALIGNED_ATTR uint8_t stack_tx[SPI_STACK_BUF_MAX];
     WORD_ALIGNED_ATTR uint8_t stack_rx[SPI_STACK_BUF_MAX];
     uint8_t *tx_buf = stack_tx;
     uint8_t *rx_buf = rx ? stack_rx : NULL;
     bool     heap_alloc = false;
 
+    /* 大事务走 DMA heap */
     if (total > SPI_STACK_BUF_MAX) {
         tx_buf = (uint8_t *)heap_caps_malloc(total, MALLOC_CAP_DMA);
         if (!tx_buf) return -1;
@@ -147,22 +200,27 @@ int hal_spi_transfer(uint8_t cmd, uint8_t addr,
         heap_alloc = true;
     }
 
+    /* 组装 3 字节头 + payload */
     tx_buf[0] = cmd;
     tx_buf[1] = addr;
-    tx_buf[2] = 0xFF;   /* 协议占位字节 */
+    tx_buf[2] = 0xFF;   /* 协议规定的占位字节 */
     if (tx && len)      memcpy(tx_buf + SPI_HDR_LEN, tx, len);
     else if (len)       memset(tx_buf + SPI_HDR_LEN, 0xFF, len);
 
+    /* 执行 SPI 事务（阻塞式，直到完成） */
     spi_transaction_t t = {
-        .length    = total * 8,
+        .length    = total * 8,       /* SPI 长度单位是 bit */
         .tx_buffer = tx_buf,
         .rx_buffer = rx_buf,
     };
     esp_err_t ret = spi_device_transmit(s_spi_dev, &t);
+
+    /* 把接收数据从 rx_buf 拷到调用者的 rx（去掉 3 字节头） */
     if (ret == ESP_OK && rx && rx_buf) {
         memcpy(rx, rx_buf + SPI_HDR_LEN, len);
     }
 
+    /* 释放 heap 缓冲 */
     if (heap_alloc) {
         heap_caps_free(tx_buf);
         if (rx_buf) heap_caps_free(rx_buf);
@@ -170,9 +228,14 @@ int hal_spi_transfer(uint8_t cmd, uint8_t addr,
     return (ret == ESP_OK) ? 0 : -1;
 }
 
+/* C5 电源控制 */
 void hal_c5_power_on(void)  { gpio_set_level(PIN_C5_CHIP_PU, 1); }
 void hal_c5_power_off(void) { gpio_set_level(PIN_C5_CHIP_PU, 0); }
 
+/*
+ * C5 复位：拉低 PU 100ms 再拉高。
+ * 复位后清空 IRQ 计数（避免上电瞬间的干扰信号污染）。
+ */
 void hal_c5_reset(void)
 {
     gpio_set_level(PIN_C5_CHIP_PU, 0);
