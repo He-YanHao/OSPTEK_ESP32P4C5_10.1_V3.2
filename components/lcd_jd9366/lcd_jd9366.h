@@ -27,7 +27,7 @@ extern "C" {
     #error "Unsupported LCD_COLOR_FORMAT"
 #endif
 
-// 分辨率
+// 分辨率 固定为800x1280 只能使用PPA进行旋转 无法使用指令硬件转屏
 #define LCD_WIDTH                   800
 #define LCD_HEIGHT                  1280
 
@@ -35,20 +35,17 @@ extern "C" {
 // 初始化
 esp_err_t lcd_jd9366_init(uint8_t num_fbs);
 
-/* 背光亮度，0~100 */
+// 背光亮度 0~100
 esp_err_t lcd_jd9366_backlight_set(uint8_t percent);
 
-/* 面板句柄（给 LVGL 用） */
+// 面板句柄
 esp_lcd_panel_handle_t lcd_jd9366_get_panel(void);
 
-/* DBI 命令通道句柄（发 LCD 命令用） */
+// DBI 命令通道句柄（发 LCD 命令用）
 esp_lcd_panel_io_handle_t lcd_jd9366_get_io(void);
 
-/* 取 DPI 面板的帧缓冲（num_fbs=2 时可用；返回 0/1 两块）*/
+// 取 DPI 面板的帧缓冲（num_fbs=2 时可用；返回 0/1 两块）
 esp_err_t lcd_jd9366_get_frame_buffers(void **fb0, void **fb1);
-
-// 
-esp_err_t lcd_jd9366_init(uint8_t num_fbs);
 
 #ifdef __cplusplus
 }

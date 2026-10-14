@@ -1,5 +1,7 @@
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "lcd_jd9366.h"
-#include "esp_lcd_jd9366.h"           // 控制器驱动
+#include "esp_lcd_jd9366.h"
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_ldo_regulator.h"
@@ -9,43 +11,43 @@
 #include "esp_lcd_panel_vendor.h"
 #include "driver/gpio.h"
 #include "driver/ledc.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+
 
 static const char *TAG = "lcd_jd9366";
 
-/* ---------------- 板级配置 ---------------- */
+// 板级配置 包含IO配置和其他硬件配置
 #define LCD_MIPI_DSI_LANE_NUM       2
 #define LCD_MIPI_DSI_LANE_MBPS      1000
 
 #define LCD_RST_GPIO                GPIO_NUM_27
 #define LCD_BL_GPIO                 GPIO_NUM_26
 
+// 根据RGB565或RGB888来配置色深 不支持ARGB
 #if LCD_COLOR_FORMAT == LCD_COLOR_FORMAT_RGB565
     #define LCD_BITS_PER_PIXEL      16
 #else
     #define LCD_BITS_PER_PIXEL      24
 #endif
 
-/* ESP32-P4 内部 LDO 通道 3 给 MIPI D-PHY 供电 */
+// 使用 ESP32-P4 内部 LDO 通道 3 给 MIPI D-PHY 供电  严格要求2.5V
 #define LCD_LDO_CHAN_ID             3
 #define LCD_LDO_VOLTAGE_MV          2500
 
-/* 背光 PWM */
+// 背光 PWM
 #define LCD_BL_LEDC_TIMER           LEDC_TIMER_0
 #define LCD_BL_LEDC_MODE            LEDC_LOW_SPEED_MODE
 #define LCD_BL_LEDC_CHANNEL         LEDC_CHANNEL_0
 #define LCD_BL_LEDC_DUTY_RES        LEDC_TIMER_10_BIT
 #define LCD_BL_LEDC_FREQ_HZ         20000
 
-/* ---------------- 内部句柄 ---------------- */
+// 内部句柄
 static esp_ldo_channel_handle_t  s_ldo_phy  = NULL;
 static esp_lcd_dsi_bus_handle_t  s_dsi_bus  = NULL;
 static esp_lcd_panel_io_handle_t s_io       = NULL;
 static esp_lcd_panel_handle_t    s_panel    = NULL;
 static bool                      s_bl_inited = false;
 
-/* ---------------- 背光 ---------------- */
+// 背光
 static esp_err_t lcd_backlight_init(void)
 {
     ledc_timer_config_t tcfg = {
@@ -71,22 +73,39 @@ static esp_err_t lcd_backlight_init(void)
     return ESP_OK;
 }
 
+/**
+ * @brief 设置背光亮度
+ * 
+ * @param percent 
+ * @return esp_err_t 
+ */
 esp_err_t lcd_jd9366_backlight_set(uint8_t percent)
 {
-    if (!s_bl_inited) return ESP_ERR_INVALID_STATE;
-    if (percent > 100) percent = 100;
+    if (!s_bl_inited) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (percent > 100) {
+        percent = 100;
+    }
 
     const uint32_t max_duty = (1u << LCD_BL_LEDC_DUTY_RES) - 1;
     uint32_t duty = (uint32_t)percent * max_duty / 100u;
 
     ESP_RETURN_ON_ERROR(ledc_set_duty(LCD_BL_LEDC_MODE, LCD_BL_LEDC_CHANNEL, duty),
                         TAG, "ledc set duty failed");
+
     ESP_RETURN_ON_ERROR(ledc_update_duty(LCD_BL_LEDC_MODE, LCD_BL_LEDC_CHANNEL),
                         TAG, "ledc update duty failed");
     return ESP_OK;
 }
 
-/* ---------------- 主初始化 ---------------- */
+/**
+ * @brief 主初始化
+ * 
+ * @param num_fbs 
+ * @return esp_err_t 
+ */
 esp_err_t lcd_jd9366_init(uint8_t num_fbs)
 {
     /* 1) MIPI D-PHY 供电 */
@@ -161,11 +180,19 @@ esp_err_t lcd_jd9366_init(uint8_t num_fbs)
     return ESP_OK;
 }
 
-/* ---------------- 句柄 ---------------- */
-esp_lcd_panel_handle_t lcd_jd9366_get_panel(void) { return s_panel; }
-esp_lcd_panel_io_handle_t lcd_jd9366_get_io(void) { return s_io; }
+//  句柄
+esp_lcd_panel_handle_t lcd_jd9366_get_panel(void)
+{
+    return s_panel;
+}
 
-/* ---------------- 取帧缓冲 ---------------- */
+// 句柄
+esp_lcd_panel_io_handle_t lcd_jd9366_get_io(void)
+{
+    return s_io;
+}
+
+// 取帧缓冲
 esp_err_t lcd_jd9366_get_frame_buffers(void **fb0, void **fb1)
 {
     if (!s_panel) return ESP_ERR_INVALID_STATE;

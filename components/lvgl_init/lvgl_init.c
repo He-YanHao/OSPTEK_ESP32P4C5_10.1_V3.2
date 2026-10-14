@@ -1,20 +1,22 @@
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "lvgl_init.h"
 #include "lvgl.h"
-#include "esp_log.h"
-#include "esp_check.h"
-#include "esp_heap_caps.h"
 #include "lcd_jd9366.h"
 #include "touch_jd9366.h"
 #include "esp_lcd_touch.h"
 #include "esp_lv_adapter.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+#include "esp_check.h"
+#include "esp_heap_caps.h"
+#include "esp_log.h"
+
 
 static const char *TAG = "lvgl_init";
 
-static esp_lcd_panel_handle_t s_panel = NULL;
-static esp_lcd_touch_handle_t s_touch = NULL;
-static lv_display_t          *s_disp  = NULL;
+// 
+static esp_lcd_panel_handle_t  s_panel = NULL;
+static esp_lcd_touch_handle_t  s_touch = NULL;
+static lv_display_t           *s_disp  = NULL;
 
 #define ROTATION_ANGLE    ESP_LV_ADAPTER_ROTATE_90
 #define TEAR_AVOID_MODE   ESP_LV_ADAPTER_TEAR_AVOID_MODE_DEFAULT_MIPI_DSI
@@ -52,14 +54,33 @@ esp_err_t lvgl_init(void)
     return ESP_OK;
 }
 
-lv_display_t *lvgl_get_disp(void) { return s_disp; }
+/**
+ * @brief 获取LCD句柄
+ * 
+ * @return lv_display_t* 
+ */
+lv_display_t *lvgl_get_disp(void)
+{
+    return s_disp;
+}
 
+/**
+ * @brief 
+ * 
+ * @param timeout_ms 
+ * @return true 
+ * @return false 
+ */
 bool lvgl_lock(uint32_t timeout_ms)
 {
     TickType_t ticks = (timeout_ms == 0) ? portMAX_DELAY : pdMS_TO_TICKS(timeout_ms);
     return esp_lv_adapter_lock(ticks) == ESP_OK;
 }
 
+/**
+ * @brief 
+ * 
+ */
 void lvgl_unlock(void)
 {
     esp_lv_adapter_unlock();
