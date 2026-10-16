@@ -1,0 +1,10 @@
+# ESP-IDF Partition Table
+# Name,     Type,   SubType,  Offset,    Size,    Flags
+# 用户参数NVS分区 (可读写 存储用户配置 WiFi配置 BLE配置等)
+nvs,        data,   nvs,      0x10000,   16K,
+# PHY初始化数据分区 (WiFi/BLE校准数据 固定4KB)
+phy_init,   data,   phy,      0x16000,   4K,
+# 用户应用分区
+factory,    app,    factory,  0x40000,   768K,
+# 文件系统分区
+storage,    data,   fat,      0x100000,  15M,
