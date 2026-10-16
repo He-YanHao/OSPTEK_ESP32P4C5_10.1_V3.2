@@ -16,8 +16,10 @@
 static const char *TAG = "lcd_jd9366";
 
 // 板级配置 包含IO配置和其他硬件配置
+
+// 根据数据手册 ESP32P4 支持 2-lane x 1.5 Gbps 这里直接配置最大
 #define LCD_MIPI_DSI_LANE_NUM       2
-#define LCD_MIPI_DSI_LANE_MBPS      1000
+#define LCD_MIPI_DSI_LANE_MBPS      1500
 
 #define LCD_RST_GPIO                GPIO_NUM_27
 #define LCD_BL_GPIO                 GPIO_NUM_26
@@ -25,8 +27,10 @@ static const char *TAG = "lcd_jd9366";
 // 根据RGB565或RGB888来配置色深 不支持ARGB
 #if LCD_COLOR_FORMAT == LCD_COLOR_FORMAT_RGB565
     #define LCD_BITS_PER_PIXEL      16
-#else
+#elif LCD_COLOR_FORMAT == LCD_COLOR_FORMAT_RGB888
     #define LCD_BITS_PER_PIXEL      24
+#else
+    #error "Unsupported LCD_COLOR_FORMAT"
 #endif
 
 // 使用 ESP32-P4 内部 LDO 通道 3 给 MIPI D-PHY 供电  严格要求2.5V
@@ -47,7 +51,12 @@ static esp_lcd_panel_io_handle_t s_io       = NULL;
 static esp_lcd_panel_handle_t    s_panel    = NULL;
 static bool                      s_bl_inited = false;
 
-// 背光
+
+/**
+ * @brief 背光初始化 内部调用
+ * 
+ * @return esp_err_t 错误返回值
+ */
 static esp_err_t lcd_backlight_init(void)
 {
     ledc_timer_config_t tcfg = {
@@ -76,11 +85,12 @@ static esp_err_t lcd_backlight_init(void)
 /**
  * @brief 设置背光亮度
  * 
- * @param percent 
+ * @param percent 亮度范围 0～100
  * @return esp_err_t 
  */
 esp_err_t lcd_jd9366_backlight_set(uint8_t percent)
 {
+    // 若未初始化背光 则返回错误
     if (!s_bl_inited) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -108,7 +118,7 @@ esp_err_t lcd_jd9366_backlight_set(uint8_t percent)
  */
 esp_err_t lcd_jd9366_init(uint8_t num_fbs)
 {
-    /* 1) MIPI D-PHY 供电 */
+    // MIPI D-PHY 供电
     esp_ldo_channel_config_t ldo_cfg = {
         .chan_id    = LCD_LDO_CHAN_ID,
         .voltage_mv = LCD_LDO_VOLTAGE_MV,
@@ -117,7 +127,7 @@ esp_err_t lcd_jd9366_init(uint8_t num_fbs)
                         TAG, "acquire LDO for MIPI PHY failed");
     vTaskDelay(pdMS_TO_TICKS(10));
 
-    /* 2) DSI 总线 */
+    // DSI 总线
     esp_lcd_dsi_bus_config_t bus_cfg = {
         .bus_id             = 0,
         .num_data_lanes     = LCD_MIPI_DSI_LANE_NUM,
@@ -126,7 +136,7 @@ esp_err_t lcd_jd9366_init(uint8_t num_fbs)
     ESP_RETURN_ON_ERROR(esp_lcd_new_dsi_bus(&bus_cfg, &s_dsi_bus),
                         TAG, "new DSI bus failed");
 
-    /* 3) DBI IO（命令通道） */
+    // DBI IO（命令通道）
     esp_lcd_dbi_io_config_t dbi_cfg = {
         .virtual_channel = 0,
         .lcd_cmd_bits    = 8,
@@ -135,11 +145,11 @@ esp_err_t lcd_jd9366_init(uint8_t num_fbs)
     ESP_RETURN_ON_ERROR(esp_lcd_new_panel_io_dbi(s_dsi_bus, &dbi_cfg, &s_io),
                         TAG, "new DBI IO failed");
 
-    /* 4) DPI 视频通道配置，num_fbs 由调用方传入 */
+    // DPI 视频通道配置，num_fbs 由调用方传入
     esp_lcd_dpi_panel_config_t dpi_cfg =
         JD9366_800_1280_PANEL_60HZ_DPI_CONFIG(LCD_DPI_IN_FORMAT, num_fbs);
 
-    /* 5) vendor config */
+    // vendor config
     jd9366_vendor_config_t vendor_cfg = {
         .mipi_config = {
             .dsi_bus    = s_dsi_bus,
@@ -149,7 +159,7 @@ esp_err_t lcd_jd9366_init(uint8_t num_fbs)
         .init_cmds_size = 0,
     };
 
-    /* 6) panel dev config */
+    // panel dev config
     esp_lcd_panel_dev_config_t panel_cfg = {
         .reset_gpio_num = LCD_RST_GPIO,
         .rgb_ele_order  = LCD_RGB_ELEMENT_ORDER_RGB,
@@ -157,21 +167,21 @@ esp_err_t lcd_jd9366_init(uint8_t num_fbs)
         .vendor_config  = &vendor_cfg,
     };
 
-    /* 7) 创建 JD9366 面板 */
+    // 创建 JD9366 面板
     ESP_RETURN_ON_ERROR(esp_lcd_new_panel_jd9366(s_io, &panel_cfg, &s_panel),
                         TAG, "new JD9366 panel failed");
 
-    /* 8) reset + init */
+    // reset + init
     ESP_RETURN_ON_ERROR(esp_lcd_panel_reset(s_panel), TAG, "panel reset failed");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_init(s_panel),  TAG, "panel init failed");
     ESP_RETURN_ON_ERROR(esp_lcd_dpi_panel_enable_dma2d(s_panel),
                         TAG, "enable dma2d failed");
 
-    /* 9) 背光 */
+    // 背光
     ESP_RETURN_ON_ERROR(lcd_backlight_init(), TAG, "backlight init failed");
     ESP_RETURN_ON_ERROR(lcd_jd9366_backlight_set(100), TAG, "backlight set failed");
 
-    /* 10) 开显示 */
+    // 开显示
     ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(s_panel, true),
                         TAG, "disp on failed");
 
@@ -180,26 +190,47 @@ esp_err_t lcd_jd9366_init(uint8_t num_fbs)
     return ESP_OK;
 }
 
-//  句柄
+/**
+ * @brief 返回句柄 供给LVGL使用
+ * 
+ * @return esp_lcd_panel_handle_t 
+ */
 esp_lcd_panel_handle_t lcd_jd9366_get_panel(void)
 {
     return s_panel;
 }
 
-// 句柄
+/**
+ * @brief 返回句柄 供给LVGL使用
+ * 
+ * @return esp_lcd_panel_io_handle_t 
+ */
 esp_lcd_panel_io_handle_t lcd_jd9366_get_io(void)
 {
     return s_io;
 }
 
-// 取帧缓冲
+/**
+ * @brief 取帧缓冲
+ * 
+ * @param fb0 
+ * @param fb1 
+ * @return esp_err_t 
+ */
 esp_err_t lcd_jd9366_get_frame_buffers(void **fb0, void **fb1)
 {
-    if (!s_panel) return ESP_ERR_INVALID_STATE;
-    if (fb0) *fb0 = NULL;
-    if (fb1) *fb1 = NULL;
+    if (!s_panel) {
+        return ESP_ERR_INVALID_STATE;
+    }
 
-    /* 若 num_fbs=2，分别取 index 0/1 */
+    if (fb0) {
+        *fb0 = NULL;
+    }
+    if (fb1) {
+        *fb1 = NULL;
+    }
+
+    // 若 num_fbs=2，分别取 index 0/1
     esp_err_t err = esp_lcd_dpi_panel_get_frame_buffer(s_panel, 1, fb0);
     if (err != ESP_OK || !fb0) return err;
 

@@ -10,11 +10,11 @@
 extern "C" {
 #endif
 
-// 颜色格式
+// 定义颜色格式的宏
 #define LCD_COLOR_FORMAT_RGB565   1
 #define LCD_COLOR_FORMAT_RGB888   2
 
-// 修改像素格式
+// 使用的像素格式
 #define LCD_COLOR_FORMAT          LCD_COLOR_FORMAT_RGB565
 
 #if LCD_COLOR_FORMAT == LCD_COLOR_FORMAT_RGB565
