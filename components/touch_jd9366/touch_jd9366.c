@@ -13,13 +13,12 @@
 static const char *TAG = "touch_jd9366";
 
 // 板级配置
-#define TP_I2C_PORT         I2C_NUM_0
-#define TP_I2C_SCL_GPIO     GPIO_NUM_8
-#define TP_I2C_SDA_GPIO     GPIO_NUM_7
-#define TP_I2C_FREQ_HZ      400000
-
-#define TP_RST_GPIO         GPIO_NUM_NC
-#define TP_INT_GPIO         GPIO_NUM_NC
+#define TP_I2C_PORT         I2C_NUM_0   // I2C端口配置
+#define TP_I2C_SCL_GPIO     GPIO_NUM_8  // 时钟线
+#define TP_I2C_SDA_GPIO     GPIO_NUM_7  // 数据线
+#define TP_I2C_FREQ_HZ      400000      // 速度400k
+#define TP_RST_GPIO         GPIO_NUM_NC // 没有复位引脚
+#define TP_INT_GPIO         GPIO_NUM_NC // 也没有中断引脚
 
 #define TP_X_MAX            800
 #define TP_Y_MAX            1280
