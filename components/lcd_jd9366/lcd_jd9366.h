@@ -44,9 +44,6 @@ esp_lcd_panel_handle_t lcd_jd9366_get_panel(void);
 // DBI 命令通道句柄（发 LCD 命令用）
 esp_lcd_panel_io_handle_t lcd_jd9366_get_io(void);
 
-// 取 DPI 面板的帧缓冲（num_fbs=2 时可用；返回 0/1 两块）
-esp_err_t lcd_jd9366_get_frame_buffers(void **fb0, void **fb1);
-
 #ifdef __cplusplus
 }
 #endif

@@ -21,6 +21,7 @@ static const char *TAG = "lcd_jd9366";
 #define LCD_MIPI_DSI_LANE_NUM       2
 #define LCD_MIPI_DSI_LANE_MBPS      1500
 
+// 硬件复位和背光引脚
 #define LCD_RST_GPIO                GPIO_NUM_27
 #define LCD_BL_GPIO                 GPIO_NUM_26
 
@@ -38,18 +39,20 @@ static const char *TAG = "lcd_jd9366";
 #define LCD_LDO_VOLTAGE_MV          2500
 
 // 背光 PWM
-#define LCD_BL_LEDC_TIMER           LEDC_TIMER_0
-#define LCD_BL_LEDC_MODE            LEDC_LOW_SPEED_MODE
-#define LCD_BL_LEDC_CHANNEL         LEDC_CHANNEL_0
-#define LCD_BL_LEDC_DUTY_RES        LEDC_TIMER_10_BIT
+#define LCD_BL_LEDC_TIMER           LEDC_TIMER_0        // 定时器编号
+#define LCD_BL_LEDC_MODE            LEDC_LOW_SPEED_MODE // 定时器模式
+#define LCD_BL_LEDC_CHANNEL         LEDC_CHANNEL_0      // 定时器通道
+#define LCD_BL_LEDC_DUTY_RES        LEDC_TIMER_10_BIT   // 定时器精度
 #define LCD_BL_LEDC_FREQ_HZ         20000
 
 // 内部句柄
-static esp_ldo_channel_handle_t  s_ldo_phy  = NULL;
-static esp_lcd_dsi_bus_handle_t  s_dsi_bus  = NULL;
-static esp_lcd_panel_io_handle_t s_io       = NULL;
-static esp_lcd_panel_handle_t    s_panel    = NULL;
-static bool                      s_bl_inited = false;
+static esp_ldo_channel_handle_t  s_ldo_phy  = NULL; // 配置 LDO 供电的句柄
+static esp_lcd_dsi_bus_handle_t  s_dsi_bus  = NULL; // 配置 MIPI DSI 的句柄的
+static esp_lcd_panel_io_handle_t s_io       = NULL; // 配置 LCD IO 的句柄
+static esp_lcd_panel_handle_t    s_panel    = NULL; // 配置 LCD 面板操作句柄
+
+// 配置背光初始化标志
+static bool s_bl_inited = false;
 
 
 /**
@@ -95,6 +98,7 @@ esp_err_t lcd_jd9366_backlight_set(uint8_t percent)
         return ESP_ERR_INVALID_STATE;
     }
 
+    // 限制过量亮度
     if (percent > 100) {
         percent = 100;
     }
@@ -208,38 +212,4 @@ esp_lcd_panel_handle_t lcd_jd9366_get_panel(void)
 esp_lcd_panel_io_handle_t lcd_jd9366_get_io(void)
 {
     return s_io;
-}
-
-/**
- * @brief 取帧缓冲
- * 
- * @param fb0 
- * @param fb1 
- * @return esp_err_t 
- */
-esp_err_t lcd_jd9366_get_frame_buffers(void **fb0, void **fb1)
-{
-    if (!s_panel) {
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    if (fb0) {
-        *fb0 = NULL;
-    }
-    if (fb1) {
-        *fb1 = NULL;
-    }
-
-    // 若 num_fbs=2，分别取 index 0/1
-    esp_err_t err = esp_lcd_dpi_panel_get_frame_buffer(s_panel, 1, fb0);
-    if (err != ESP_OK || !fb0) return err;
-
-    if (fb1) {
-        esp_err_t err2 = esp_lcd_dpi_panel_get_frame_buffer(s_panel, 2, fb0, fb1);
-        if (err2 != ESP_OK) {
-            ESP_LOGW(TAG, "only one fb available");
-            *fb1 = NULL;
-        }
-    }
-    return ESP_OK;
 }
