@@ -19,7 +19,7 @@ static esp_lcd_touch_handle_t  s_touch = NULL;
 static lv_display_t           *s_disp  = NULL;
 
 // 配置 LVGL 适配层的旋转角度
-#define ROTATION_ANGLE    ESP_LV_ADAPTER_ROTATE_90
+#define ROTATION_ANGLE    ESP_LV_ADAPTER_ROTATE_270
 // 
 #define TEAR_AVOID_MODE   ESP_LV_ADAPTER_TEAR_AVOID_MODE_DEFAULT_MIPI_DSI
 

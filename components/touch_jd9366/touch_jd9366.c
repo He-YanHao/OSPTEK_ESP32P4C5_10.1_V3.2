@@ -67,8 +67,8 @@ esp_err_t touch_jd9366_init(void)
         },
         .flags = {
             .swap_xy  = 1,
-            .mirror_x = 1,
-            .mirror_y = 0,
+            .mirror_x = 0,
+            .mirror_y = 1,
         },
     };
 
