@@ -62,6 +62,7 @@ static bool s_bl_inited = false;
  */
 static esp_err_t lcd_backlight_init(void)
 {
+    // 配置LDEC定时器 实现亮度调节
     ledc_timer_config_t tcfg = {
         .speed_mode      = LCD_BL_LEDC_MODE,
         .timer_num       = LCD_BL_LEDC_TIMER,
@@ -71,6 +72,7 @@ static esp_err_t lcd_backlight_init(void)
     };
     ESP_RETURN_ON_ERROR(ledc_timer_config(&tcfg), TAG, "ledc timer cfg failed");
 
+    // 初始化对应的GPIO
     ledc_channel_config_t ccfg = {
         .gpio_num   = LCD_BL_GPIO,
         .speed_mode = LCD_BL_LEDC_MODE,
@@ -117,7 +119,7 @@ esp_err_t lcd_jd9366_backlight_set(uint8_t percent)
 /**
  * @brief 主初始化
  * 
- * @param num_fbs 
+ * @param num_fbs 缓冲区数量
  * @return esp_err_t 
  */
 esp_err_t lcd_jd9366_init(uint8_t num_fbs)

@@ -20,9 +20,6 @@ static const char *TAG = "touch_jd9366";
 #define TP_RST_GPIO         GPIO_NUM_NC // 没有复位引脚
 #define TP_INT_GPIO         GPIO_NUM_NC // 也没有中断引脚
 
-#define TP_X_MAX            800
-#define TP_Y_MAX            1280
-
 // 句柄
 static i2c_master_bus_handle_t   s_i2c_bus   = NULL;
 static esp_lcd_panel_io_handle_t s_tp_io     = NULL;
@@ -57,18 +54,20 @@ esp_err_t touch_jd9366_init(void)
 
     // 触摸配置
     esp_lcd_touch_config_t tp_cfg = {
-        .x_max        = TP_X_MAX,
-        .y_max        = TP_Y_MAX,
+        .x_max        = LCD_WIDTH,
+        .y_max        = LCD_HEIGHT,
         .rst_gpio_num = TP_RST_GPIO,
         .int_gpio_num = TP_INT_GPIO,
+        // levels 是关于硬件引脚复位电平配置的选项 但是这个没有硬件复位引脚 因此此处无意义
         .levels = {
             .reset     = 0,
             .interrupt = 0,
         },
+        // 通过这个对触摸坐标进行交换和镜像的处理 实现触摸坐标旋转的效果
         .flags = {
-            .swap_xy  = 1,
-            .mirror_x = 0,
-            .mirror_y = 1,
+            .swap_xy  = 1, // 交换 X Y
+            .mirror_x = 0, // 不镜像 X
+            .mirror_y = 1, // 镜像 Y
         },
     };
 

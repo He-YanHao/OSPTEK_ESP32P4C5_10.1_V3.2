@@ -12,9 +12,9 @@ gg_ui_t guider_ui;
 void app_main(void)
 {
     lvgl_init();
-    if (lvgl_lock(0)) {
+    if (esp_lv_adapter_lock(-1) == ESP_OK) {
         setup_ui(&guider_ui);
-        lvgl_unlock();
+        esp_lv_adapter_unlock();
     }
     ESP_LOGI(TAG, "UI launched");
 }

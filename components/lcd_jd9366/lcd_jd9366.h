@@ -31,7 +31,6 @@ extern "C" {
 #define LCD_WIDTH                   800
 #define LCD_HEIGHT                  1280
 
-
 // 初始化
 esp_err_t lcd_jd9366_init(uint8_t num_fbs);
 
