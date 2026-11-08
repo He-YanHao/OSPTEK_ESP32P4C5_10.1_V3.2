@@ -98,6 +98,11 @@ idf.py -p <PORT> flash monitor
   - 禁止臆测该功能是什么，禁止预造 API、文件名、组件行为；
   - `components/esp32at_sdio`（空 `CMakeLists.txt`）、MIPI-CSI 摄像头、音频、TF、USB、C5 无线一律描述为"**硬件已具备 / 组件占位，软件未接入**"；
   - 需求不清就提问，不要用"通常做法是……"代替本工程事实。
+- **2026-11-09 实测进度**：`APP_MODE_CAMERA_RAW` 的 **S0（不链接 LVGL 的纯屏彩条裸显）已编译 / 烧录 / 实测通过**，日志与数据见 `doc/摄像头裸显预览方案.md` 第 5.1 节。因此：
+  - **不要再声称"本机没有 ESP-IDF 环境 / 未编译验证"**。本机 IDF 为 **v6.1**（`D:\Program\Espressif\v6.1\esp-idf`），串口 **COM7**；PowerShell 下 dot-source `C:\Espressif\tools\Microsoft.v6.1.PowerShell_profile.ps1` 激活。**Git Bash / MSys 不被 IDF 6.1 支持**（报 `MSys/Mingw is no longer supported`），编译烧录走 PowerShell / cmd。
+  - `main/Kconfig.projbuild` 的 `APP_MODE` 默认 GUI，但当前 `sdkconfig` 已切到 `CAMERA_RAW`；切回需把两行改回（或 `git checkout -- sdkconfig`）并**重新 `idf.py reconfigure`**。
+  - 改模式后**必须 `idf.py reconfigure` 再 build**；`MINIMAL_BUILD ON` 的条件 `REQUIRES` 有两阶段扫描陷阱，**不要删掉 `main/CMakeLists.txt` 里回读 `sdkconfig` 的兜底**（详见该文档 2.3 节）。
+  - S1（SC2336 探测）及之后仍未实现；摄像头 / 音频 / TF / USB / C5 无线依旧描述为"硬件已具备、软件未接入"。
 - 改动代码后，同步更新 `README.md`、`doc/工程介绍.md`、本文件中受影响的**引脚、版本、分区、状态、目录**。
 - 引用硬件结论时标注来源（文件名 + 章节 / 页码），例如"核心板使用指南 3.3 节"。
 - 面向用户一律用**简体中文**回复；命令、路径、代码标识符保持原文。

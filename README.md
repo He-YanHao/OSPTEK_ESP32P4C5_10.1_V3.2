@@ -2,7 +2,7 @@
 
 > 基于 **ESP32-P4**（+ ESP32-C5 无线协处理器）的 10.1 英寸 MIPI-DSI 显示 / 触摸 / LVGL 工程基线。
 >
-> **当前状态**：显示、触摸、LVGL 与 GUI Guider UI 骨架已跑通；`components/esp32at_sdio` 为空占位组件，摄像头 / 音频 / TF / USB / 无线等硬件能力尚未在软件中接入。后续业务功能的需求待补充，本文档不对其做假设。
+> **当前状态**：显示、触摸、LVGL 与 GUI Guider UI 骨架已跑通；新增 `APP_MODE` 开关，其中 **`CAMERA_RAW` 裸显模式的 S0（不链接 LVGL 的纯屏彩条）已于 2026-11-09 在本板编译 / 烧录 / 实测通过**（默认仍是 GUI 模式）。`components/esp32at_sdio` 为空占位组件，摄像头 / 音频 / TF / USB / 无线等硬件能力尚未在软件中接入。后续业务功能的需求待补充，本文档不对其做假设。
 
 ## 一眼看懂
 
@@ -17,7 +17,7 @@
 | 显示方向 | 270° 旋转（横屏），GUI Guider 画布 **1280 × 800** |
 | 存储 | 16 MB NOR Flash（80 MHz）+ 32 MB HEX PSRAM（250 MHz） |
 | 分区 | nvs 16K / phy_init 4K / factory **768K** / storage(FAT) **15M** |
-| 框架 | ESP-IDF，`CONFIG_IDF_TARGET="esp32p4"`；`esp_lvgl_adapter 0.7.2` 声明 `idf >= 5.5.5` |
+| 框架 | ESP-IDF **v6.1**（本机 `D:\Program\Espressif\v6.1\esp-idf`），`CONFIG_IDF_TARGET="esp32p4"`；`esp_lvgl_adapter 0.7.2` 声明 `idf >= 5.5.5` |
 | 工程名 | `p4`（见根 `CMakeLists.txt`） |
 | 当前 UI | GUI Guider 生成的键盘演示页（两个 `lv_keyboard`），用于验证显示 / 触摸链路，非最终产品界面 |
 
@@ -40,7 +40,25 @@ idf.py fullclean               # 依赖 / 组件变更后全量重编
 idf.py size-components         # 关注 factory 分区余量（仅 768K）
 ```
 
-> 配置提示：当前 `sdkconfig` 中 `CONFIG_ESPTOOLPY_FLASHMODE_QIO=y` 与 `CONFIG_ESPTOOLPY_FLASHMODE="dio"` 不一致，烧录前请用 `idf.py menuconfig` 确认实际 Flash 模式（详见 `doc/工程介绍.md` 第 15 节）。
+### 切换运行模式
+
+`main/Kconfig.projbuild` 提供 `APP_MODE`，默认仍是 GUI 基线：
+
+| 模式 | 说明 | `main` 的 `REQUIRES` |
+| --- | --- | --- |
+| `APP_MODE_GUI`（默认） | LVGL + GUI Guider 基线 | `spi_flash esp_psram lvgl_init guider_ui` |
+| `APP_MODE_CAMERA_RAW` | 不链接 GUI 链的裸显模式（当前为 S0 彩条验收） | `spi_flash esp_psram esp_mm esp_lcd lcd_jd9366` |
+
+```bash
+idf.py menuconfig             # Application Mode → Camera raw preview
+idf.py reconfigure            # 关键：MINIMAL_BUILD 下必须刷新 CMake 组件依赖
+idf.py build
+idf.py -p COM7 flash
+```
+
+> 切回 GUI：选回 `APP_MODE_GUI` → `idf.py reconfigure` → build / flash。实测数据与两个构建坑见 `doc/摄像头裸显预览方案.md` 第 2.3 / 5.1 节。
+
+> 配置提示：当前 `sdkconfig` 中 `CONFIG_ESPTOOLPY_FLASHMODE_QIO=y` 与 `CONFIG_ESPTOOLPY_FLASHMODE="dio"` 不一致，烧录前请用 `idf.py menuconfig` 确认实际 Flash 模式（详见 `doc/工程介绍.md` 第 15 节）。本板实测：烧录用 dio、bootloader 运行时切到 QIO，两种模式均可启动。
 
 > **C5 侧固件（若后续要启用无线）**：开发板资料给出的预编译合并包为 `ESP32C5_2.12.9_0X0.bin`，烧录目标选 **ESP32-C5**（拨动开关往下拨）、地址 **0x0**，不要当应用烧到 0x10000；烧完拨回 P4。本仓库不含该固件，需从厂商资料仓库获取。
 
@@ -108,6 +126,7 @@ LVGL 不是线程安全的：任何非 LVGL 任务内操作 UI，都必须用 `e
 | LVGL 9.4.0 + esp_lvgl_adapter（270° / 防撕裂） | 已实现并跑通 |
 | GUI Guider UI 骨架（键盘演示页） | 已生成，仅作链路验证 |
 | 自定义分区表（含 15M FAT） | 已配置 |
+| 裸显模式 `CAMERA_RAW` / S0 纯屏彩条（不链接 LVGL） | **2026-11-09 已实测通过**：236K 镜像、COM7 烧录、双缓冲彩条滚动；S1 摄像头探测未开始 |
 | `components/esp32at_sdio` | **空占位**，历史上曾有 AT / SPI 桥接实现，现已删除，当前不参与构建 |
 | MIPI-CSI 摄像头（SC2336）、音频（ES8311 / NS4150 / 硅麦）、TF 卡、USB、C5 无线 | 硬件已具备，软件未接入 |
 | 后续业务功能 | 需求待补充 |
@@ -136,7 +155,7 @@ LVGL 不是线程安全的：任何非 LVGL 任务内操作 UI，都必须用 `e
 - `AGENTS.md`：AI / 自动化工具阅读本仓库的规则与约束
 - `doc/工程介绍.md`：完整工程介绍（架构、引脚、启动流程、扩展指南、已知坑）
 - `doc/Matter-WebRTC摄像头方案适配评估.md`：Matter 1.5 / WebRTC / H.264 摄像头方案针对本工程的适配评估（**评估稿，非已确定需求**；当前仅作为工程文档）
-- `doc/摄像头裸显预览方案.md`：第一阶段验证目标 —— 不链接 LVGL、不碰协议的摄像头本地直显设计（**设计稿，未实现**）
+- `doc/摄像头裸显预览方案.md`：第一阶段验证目标 —— 不链接 LVGL、不碰协议的摄像头本地直显（**S0 已实测通过，含完整构建/烧录记录；S1 起仍为设计稿**）
 - `guider/SCR.txt`：GUI Guider 生成内容的第三方许可清单
 - 个人笔记库（工程外）：`D:\Documents\Notes\嵌入式\01_平台层（硬件）\ESP32\P4` —— `鱼鹰P4C5-AT.md`（AT 通道引脚速查）、`ESP32-P4-通用代码骨架.md`（平台通用代码）。分流规则见 `AGENTS.md` 第 9 节。
 

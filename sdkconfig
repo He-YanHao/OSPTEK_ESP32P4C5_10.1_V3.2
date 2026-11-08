@@ -1309,6 +1309,13 @@ CONFIG_PARTITION_TABLE_MD5=y
 # end of Partition Table
 
 #
+# Application Mode
+#
+# CONFIG_APP_MODE_GUI is not set
+CONFIG_APP_MODE_CAMERA_RAW=y
+# end of Application Mode
+
+#
 # Compiler options
 #
 # CONFIG_COMPILER_OPTIMIZATION_DEBUG is not set

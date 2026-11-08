@@ -1,0 +1,22 @@
+menu "Application Mode"
+
+choice APP_MODE
+    prompt "Application mode"
+    default APP_MODE_GUI
+    help
+        Select which application is linked into main.
+
+        GUI keeps the LVGL / GUI Guider baseline untouched.
+        Camera raw preview links no LVGL component at all (stage S0):
+        it only brings in lcd_jd9366 and writes RGB565 data into the
+        DPI framebuffers directly. Switch back to GUI at any time.
+
+    config APP_MODE_GUI
+        bool "GUI (LVGL + GUI Guider baseline)"
+
+    config APP_MODE_CAMERA_RAW
+        bool "Camera raw preview (no LVGL, stage S0)"
+
+endchoice
+
+endmenu
