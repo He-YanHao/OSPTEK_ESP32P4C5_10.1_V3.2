@@ -35,3 +35,6 @@ __pycache__/
 *.tmp
 *.bak
 *.log
+
+# 工作区工具数据（项目记忆，不是临时缓存，但只留本机）
+.workbuddy/
