@@ -10,6 +10,9 @@
 #include "esp_lcd_mipi_dsi.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_cache.h"
+#if defined(CONFIG_APP_CAM_S1_SCCB_PROBE)
+#include "cam_sccb_probe.h"
+#endif
 #else
 #include "lvgl_init.h"
 #include "lvgl.h"
@@ -70,6 +73,14 @@ static void app_main_raw(void)
     for (int i = 0; i < RAW_FB_NUM; i++) {
         ESP_LOGI(TAG, "S0: fb[%d] = %p", i, fb[i]);
     }
+
+#if defined(CONFIG_APP_CAM_S1_SCCB_PROBE)
+    /* S1: is the sensor alive on SCCB? GPIO7/8 are free here because the touch
+     * panel is never initialised in this mode. Runs before the pattern test so
+     * the result is visible early in the boot log. */
+    const esp_err_t sccb_err = cam_sccb_probe(NULL);
+    ESP_LOGI(TAG, "S1: SCCB probe -> %s", sccb_err == ESP_OK ? "OK" : "FAILED");
+#endif
 
     /* Phase 1: DSI controller built-in pattern, zero CPU involvement.
      * Confirms D-PHY / DSI / panel chain independently of any framebuffer. */

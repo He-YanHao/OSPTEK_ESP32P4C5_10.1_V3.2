@@ -1313,6 +1313,19 @@ CONFIG_PARTITION_TABLE_MD5=y
 #
 # CONFIG_APP_MODE_GUI is not set
 CONFIG_APP_MODE_CAMERA_RAW=y
+
+#
+# Camera raw preview (SC2336)
+#
+# default:
+CONFIG_APP_CAM_S1_SCCB_PROBE=y
+# default:
+CONFIG_APP_CAM_SCCB_SDA_GPIO=7
+# default:
+CONFIG_APP_CAM_SCCB_SCL_GPIO=8
+# default:
+CONFIG_APP_CAM_RST_GPIO=26
+# end of Camera raw preview (SC2336)
 # end of Application Mode
 
 #

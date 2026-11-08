@@ -15,8 +15,49 @@ choice APP_MODE
         bool "GUI (LVGL + GUI Guider baseline)"
 
     config APP_MODE_CAMERA_RAW
-        bool "Camera raw preview (no LVGL, stage S0)"
+        bool "Camera raw preview (no LVGL, stage S0/S1)"
 
 endchoice
+
+if APP_MODE_CAMERA_RAW
+
+menu "Camera raw preview (SC2336)"
+
+config APP_CAM_S1_SCCB_PROBE
+    bool "Run the SCCB sensor probe at boot (stage S1)"
+    default y
+    help
+        Resets the SC2336 through GPIO26 (open-drain) and scans the SCCB bus
+        for the sensor ID 0xcb3a. Result is printed on the console; it does
+        not change what is shown on the panel.
+
+config APP_CAM_SCCB_SDA_GPIO
+    int "SCCB SDA GPIO (3.3 V side of the TXS0102)"
+    range 0 54
+    default 7
+    help
+        Baseboard V1.3: CSI_SDA_1V8 is level shifted by U5 and lands on
+        I2C_SDA_GPIO7, the same I2C0 bus as the touch panel.
+
+config APP_CAM_SCCB_SCL_GPIO
+    int "SCCB SCL GPIO (3.3 V side of the TXS0102)"
+    range 0 54
+    default 8
+    help
+        Baseboard V1.3: CSI_SCL_1V8 is level shifted by U5 and lands on
+        I2C_SCL_GPIO8.
+
+config APP_CAM_RST_GPIO
+    int "Camera reset GPIO (open-drain, pulled to 1.8 V on board)"
+    range 0 54
+    default 26
+    help
+        Baseboard V1.3: GPIO26 -> R4 0R -> CSI_RST, with R20 10K pull-up to
+        1V8 and C5 0.1uF to GND. The schematic notes the reset pin is a 1.8 V
+        input, so the GPIO must stay open-drain.
+
+endmenu
+
+endif # APP_MODE_CAMERA_RAW
 
 endmenu

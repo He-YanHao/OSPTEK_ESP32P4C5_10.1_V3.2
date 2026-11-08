@@ -23,7 +23,7 @@
 | 屏幕 | 10.1" JD9366，**物理 800 × 1280**，MIPI-DSI 2-lane，RGB565 |
 | 逻辑方向 | 270° 旋转，GUI Guider 画布 1280 × 800 |
 | 图形栈 | LVGL 9.4.0（本地组件 `lvgl__lvgl`）+ GUI Guider 2.0.1 + `esp_lvgl_adapter` 0.7.2 |
-| 触摸 | JD9366，I2C0，SCL=GPIO8 / SDA=GPIO7，无 RST / INT 引脚 |
+| 触摸 | JD9366，I2C0，SCL=GPIO8 / SDA=GPIO7；`CTP_RST=GPIO6`、`CTP_INT=GPIO21` 硬件有接线但驱动未用 |
 | 存储 | 16 MB Flash / 32 MB HEX PSRAM @250 MHz；`factory` 分区仅 **768K**，`storage` FAT 15M |
 | 版本约束 | `esp_lvgl_adapter 0.7.2` 声明 `idf >= 5.5.5`；`dependencies.lock` 固定托管组件版本 |
 
@@ -73,6 +73,9 @@
 ## 5. 硬件约束（改引脚前必查）
 
 - 已占用：`LCD_RST=GPIO27`、`LCD_BL=GPIO26`（LEDC TIMER0/CH0，10 bit，20 kHz）、`TP_SCL=GPIO8`、`TP_SDA=GPIO7`；MIPI DSI 用 `DSI_D0/1 ± / CLK ±`，CSI 用 `CSI_D0/1 ± / CLK ±`，均为**专用 PHY 引脚，不可任意重映射**。
+- **GPIO26 的真实身份是 `CSI_RST`（摄像头复位），不是背光**：底板 V1.3 为 `GPIO26 → R4 0 Ω → CSI_RST`，`R20` 10K 上拉到 1V8，图注要求"IO 使用开漏输出"；真正的背光使能是 **`GPIO20`**（`SY7200 EN`，10K 上拉、默认常亮）。`lcd_jd9366.c` 里的 `LCD_BL_GPIO = GPIO26` 是历史遗留、在该底板上调亮度无效 —— **动背光或动摄像头前先看 `doc/工程介绍.md` 第 3 节的接线矛盾说明**，不要在两个功能间抢同一个 GPIO。
+- **摄像头 SCCB 与触摸共用 I2C0（GPIO7/GPIO8）**：`CSI_SDA_1V8 / CSI_SCL_1V8` 经 `U5 TXS0102DCUR`（VCCA=1V8、VCCB=+3V3、OE 常使能）转换后落到同一对引脚。GUI 模式下触摸先初始化；裸显模式不初始化触摸，可独占该总线。
+- 摄像头 MCLK 由**板载 24 MHz 晶振**经 `R5` 0 Ω 提供（`J1.14`），P4 不需要输出 XCLK。
 - `GPIO34~38` 是 P4 的 Strapping / 启动模式 / 下载脚（GPIO37/38 亦为 UART0 烧录脚）；复用前查核心板手册 3.3 节。
 - `GPIO39~48` 是 `SD1_*`（SDIO / SD 卡相关，与 C5 协处理器通道相关），改动前查核心板引脚定义与底板原理图。
 - `RTC_VBAT`（核心板 Pin 84）**不可悬空**（2.3–3.6 V）；MIPI D-PHY 由内部 LDO 通道 3 提供 **2.5 V**；底板 V1.3 的 CSI 复位上拉为 **1.8 V**，相关 IO 建议开漏输出。
