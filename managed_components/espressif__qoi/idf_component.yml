@@ -1,0 +1,11 @@
+dependencies:
+  idf: '>=5.0'
+description: QOI - The "Quite OK Image" format for fast, lossless image compression
+documentation: https://qoiformat.org/
+issues: https://github.com/espressif/idf-extra-components/issues
+repository: git://github.com/espressif/idf-extra-components.git
+repository_info:
+  commit_sha: 18be8e9475243eea930cc7fc674e00a6e5237d42
+  path: qoi
+url: https://github.com/espressif/idf-extra-components/tree/master/qoi
+version: 0.20260529.0

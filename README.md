@@ -112,7 +112,7 @@ LVGL 不是线程安全的：任何非 LVGL 任务内操作 UI，都必须用 `e
 | 屏幕旋转 | `ROTATION_ANGLE_DEG = 270`（`lvgl_init.c`） | 改它必须同步改触摸 `swap_xy / mirror_x / mirror_y` 和 GUI Guider 画布尺寸 |
 | 面板物理分辨率 | 800 × 1280，RGB565，DPI 78 MHz / 60 Hz | `lcd_jd9366.h` / `esp_lcd_jd9366.h`，**不支持指令硬件转屏**，旋转靠适配层硬件（PPA / DMA2D） |
 | DSI | 2-lane @1500 Mbps，LDO 通道 3 = 2.5 V | `lcd_jd9366.c` |
-| 引脚 | LCD_RST=GPIO27，TP_SCL=GPIO8，TP_SDA=GPIO7，背光使能=GPIO20，CSI_RST=GPIO26 | ⚠️ 驱动里 `LCD_BL=GPIO26` 与该底板不符：GPIO26 实为摄像头复位，背光被 10K 上拉常亮。详见 `doc/工程介绍.md` 第 3 节 |
+| 引脚 | LCD_RST=GPIO27，TP_SCL=GPIO8，TP_SDA=GPIO7，背光使能=GPIO20，CSI_RST=GPIO26 | `lcd_jd9366.c` 的 `LCD_BL_GPIO` 已按底板 V1.3 修正为 **GPIO20**（SY7200 EN）；GPIO26 是摄像头复位，勿复用 |
 | 应用分区 | `factory` 仅 768K | 字体、图片、资源不要硬塞进 app，考虑 `storage`(FAT 15M) / mmap assets |
 | Strapping | GPIO34~38（P4 启动模式 / 下载） | 复用这些脚做外设前先查核心板手册 3.3 节 |
 | 电源 | `RTC_VBAT`（Pin84）不可悬空；CSI 复位上拉 1.8 V、IO 建议开漏 | 见底板 V1.3 与核心板手册 |

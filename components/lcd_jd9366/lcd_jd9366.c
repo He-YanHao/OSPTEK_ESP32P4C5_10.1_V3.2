@@ -22,8 +22,13 @@ static const char *TAG = "lcd_jd9366";
 #define LCD_MIPI_DSI_LANE_MBPS      1500
 
 // 硬件复位和背光引脚
+// 依据底板 V1.3 原理图：
+//   LCD_RST = GPIO27（J3 屏排线的 LCD_RST 网络）
+//   LCD_BL  = GPIO20（U2 SY7200 升压芯片 EN 脚，R1 10K 上拉到 +3V3）
+// 注意：GPIO26 是 CSI_RST（摄像头复位，1.8V 域，需开漏），不是背光。
+//       早期版本误把 GPIO26 当背光，会与摄像头复位抢脚（IDF 报 GPIO[26] conflict）。
 #define LCD_RST_GPIO                GPIO_NUM_27
-#define LCD_BL_GPIO                 GPIO_NUM_26
+#define LCD_BL_GPIO                 GPIO_NUM_20
 
 // 根据RGB565或RGB888来配置色深 不支持ARGB
 #if LCD_COLOR_FORMAT == LCD_COLOR_FORMAT_RGB565

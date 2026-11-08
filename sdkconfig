@@ -1492,6 +1492,17 @@ CONFIG_ESP_ERR_TO_NAME_LOOKUP=y
 # end of ESP-Driver:BitScrambler Configurations
 
 #
+# ESP-Driver:Camera Controller Configurations
+#
+# default:
+# CONFIG_CAM_CTLR_MIPI_CSI_ISR_CACHE_SAFE is not set
+# default:
+# CONFIG_CAM_CTLR_ISP_DVP_ISR_CACHE_SAFE is not set
+# default:
+# CONFIG_CAM_CTLR_DVP_CAM_ISR_CACHE_SAFE is not set
+# end of ESP-Driver:Camera Controller Configurations
+
+#
 # GDMA Configurations
 #
 # default:
@@ -1548,6 +1559,26 @@ CONFIG_I2C_MASTER_ISR_HANDLER_IN_IRAM=y
 # default:
 # CONFIG_I2S_ENABLE_DEBUG_LOG is not set
 # end of ESP-Driver:I2S Configurations
+
+#
+# ESP-Driver:I3C Master Configurations
+#
+# default:
+# CONFIG_I3C_MASTER_ISR_CACHE_SAFE is not set
+# default:
+# CONFIG_I3C_MASTER_ENABLE_DEBUG_LOG is not set
+# default:
+# CONFIG_I3C_MASTER_ISR_HANDLER_IN_IRAM is not set
+# end of ESP-Driver:I3C Master Configurations
+
+#
+# ESP-Driver:ISP Configurations
+#
+# default:
+# CONFIG_ISP_ISR_IRAM_SAFE is not set
+# default:
+# CONFIG_ISP_CTRL_FUNC_IN_IRAM is not set
+# end of ESP-Driver:ISP Configurations
 
 #
 # ESP-Driver:JPEG-Codec Configurations
@@ -2912,6 +2943,201 @@ CONFIG_CU_DIAGNOSTICS_COLOR_ALWAYS=y
 # end of CMake Utilities
 
 #
+# Espressif Camera Sensors Configurations
+#
+
+#
+# Camera Sensor Configuration
+#
+
+#
+# Select and Set Camera Sensor
+#
+# default:
+# CONFIG_CAMERA_BF20A6 is not set
+# default:
+# CONFIG_CAMERA_BF3031 is not set
+# default:
+# CONFIG_CAMERA_BF3045 is not set
+# default:
+# CONFIG_CAMERA_BF3901 is not set
+# default:
+# CONFIG_CAMERA_BF3925 is not set
+# default:
+# CONFIG_CAMERA_BF3A03 is not set
+# default:
+# CONFIG_CAMERA_GC0308 is not set
+# default:
+# CONFIG_CAMERA_GC032A is not set
+# default:
+# CONFIG_CAMERA_GC2053 is not set
+# default:
+# CONFIG_CAMERA_GC2145 is not set
+# default:
+# CONFIG_CAMERA_GC2607 is not set
+# default:
+# CONFIG_CAMERA_GC4053 is not set
+# default:
+# CONFIG_CAMERA_LT6911 is not set
+# default:
+# CONFIG_CAMERA_MIRA220 is not set
+# default:
+# CONFIG_CAMERA_MIT245 is not set
+# default:
+# CONFIG_CAMERA_MT9D111 is not set
+# default:
+# CONFIG_CAMERA_OS02N10 is not set
+# default:
+# CONFIG_CAMERA_OS04C10 is not set
+# default:
+# CONFIG_CAMERA_OV2640 is not set
+# default:
+# CONFIG_CAMERA_OV2710 is not set
+# default:
+# CONFIG_CAMERA_OV3640 is not set
+# default:
+# CONFIG_CAMERA_OV3660 is not set
+# default:
+# CONFIG_CAMERA_OV5640 is not set
+# default:
+# CONFIG_CAMERA_OV5645 is not set
+# default:
+# CONFIG_CAMERA_OV5647 is not set
+# default:
+# CONFIG_CAMERA_OV9281 is not set
+# default:
+# CONFIG_CAMERA_SC030IOT is not set
+# default:
+# CONFIG_CAMERA_SC035HGS is not set
+# default:
+# CONFIG_CAMERA_SC101IOT is not set
+# default:
+# CONFIG_CAMERA_SC121AT is not set
+# default:
+# CONFIG_CAMERA_SC132GS is not set
+# default:
+# CONFIG_CAMERA_SC1346 is not set
+# default:
+# CONFIG_CAMERA_SC202CS is not set
+# default:
+# CONFIG_CAMERA_SC2331 is not set
+# default:
+CONFIG_CAMERA_SC2336=y
+
+#
+# Auto detect SC2336
+#
+# default:
+# CONFIG_CAMERA_SC2336_AUTO_DETECT_DVP_INTERFACE_SENSOR is not set
+CONFIG_CAMERA_SC2336_AUTO_DETECT_MIPI_INTERFACE_SENSOR=y
+# end of Auto detect SC2336
+
+#
+# Choose supported formats for MIPI CSI interface
+#
+CONFIG_CAMERA_SC2336_MIPI_RAW8_800X800_30FPS=y
+# default:
+# CONFIG_CAMERA_SC2336_MIPI_RAW8_1024X600_30FPS is not set
+# default:
+CONFIG_CAMERA_SC2336_MIPI_RAW8_1280X720_30FPS=y
+# default:
+# CONFIG_CAMERA_SC2336_MIPI_RAW8_1920X1080_30FPS is not set
+# default:
+# CONFIG_CAMERA_SC2336_MIPI_RAW10_640X480_50FPS is not set
+# default:
+# CONFIG_CAMERA_SC2336_MIPI_RAW10_800X800_30FPS is not set
+# default:
+# CONFIG_CAMERA_SC2336_MIPI_RAW10_1280X720_30FPS is not set
+# default:
+# CONFIG_CAMERA_SC2336_MIPI_RAW10_1280X720_50FPS is not set
+# default:
+# CONFIG_CAMERA_SC2336_MIPI_RAW10_1280X720_60FPS is not set
+# default:
+# CONFIG_CAMERA_SC2336_MIPI_RAW10_1920X1080_25FPS_1_LANE is not set
+# default:
+# CONFIG_CAMERA_SC2336_MIPI_RAW10_1920X1080_25FPS_2_LANE is not set
+# default:
+# CONFIG_CAMERA_SC2336_MIPI_RAW10_1920X1080_30FPS is not set
+# end of Choose supported formats for MIPI CSI interface
+
+CONFIG_CAMERA_SC2336_MIPI_DEFAULT_FMT_RAW8_800X800_30FPS=y
+# CONFIG_CAMERA_SC2336_MIPI_DEFAULT_FMT_RAW8_1280X720_30FPS is not set
+# default:
+CONFIG_CAMERA_SC2336_MIPI_IF_FORMAT_INDEX_DEFAULT=10
+
+#
+# Choose supported formats for DVP interface
+#
+# default:
+CONFIG_CAMERA_SC2336_DVP_RAW10_1280X720_30FPS=y
+# end of Choose supported formats for DVP interface
+
+# default:
+CONFIG_CAMERA_SC2336_DVP_DEFAULT_FMT_RAW10_1280X720_30FPS=y
+# default:
+CONFIG_CAMERA_SC2336_DVP_IF_FORMAT_INDEX_DEFAULT=0
+# default:
+CONFIG_CAMERA_SC2336_ABSOLUTE_GAIN_LIMIT=66016
+# default:
+# CONFIG_CAMERA_SC2336_ANA_GAIN_PRIORITY is not set
+# default:
+CONFIG_CAMERA_SC2336_DIG_GAIN_PRIORITY=y
+# default:
+CONFIG_CAMERA_SC2336_DEFAULT_IPA_JSON_CONFIGURATION_FILE=y
+# default:
+# CONFIG_CAMERA_SC2336_CUSTOMIZED_IPA_JSON_CONFIGURATION_FILE is not set
+# default:
+# CONFIG_CAMERA_SC2337P is not set
+# default:
+# CONFIG_CAMERA_SP0A39 is not set
+# default:
+# CONFIG_CAMERA_STI2250 is not set
+# default:
+# CONFIG_CAMERA_TC358743 is not set
+# default:
+# CONFIG_CAMERA_ARDUCAM_IMX500 is not set
+# default:
+# CONFIG_CAMERA_PIVARIETY is not set
+# end of Select and Set Camera Sensor
+# end of Camera Sensor Configuration
+
+#
+# Camera XCLK Generator Configuration
+#
+# default:
+# CONFIG_CAMERA_XCLK_USE_LEDC is not set
+# default:
+CONFIG_CAMERA_XCLK_USE_ESP_CLOCK_ROUTER=y
+# end of Camera XCLK Generator Configuration
+
+#
+# Camera Motor Control Configuration
+#
+# default:
+# CONFIG_CAM_MOTOR_DW9714 is not set
+# end of Camera Motor Control Configuration
+
+# default:
+CONFIG_CAM_CTRL_SPI_ENABLE=y
+# default:
+CONFIG_CAM_CTLR_SPI_ISR_CACHE_SAFE=y
+# default:
+# CONFIG_CAM_CTLR_SPI_DISABLE_BACKUP_BUFFER is not set
+# default:
+# CONFIG_CAM_CTLR_SPI_DISABLE_AUTO_DECODE is not set
+# default:
+CONFIG_CAM_CTLR_SPI_DECODE_TASK_STACK_SIZE=4096
+# default:
+CONFIG_CAM_CTLR_SPI_DECODE_TASK_PRIORITY=10
+# default:
+# CONFIG_CAM_CTLR_SPI_ENABLE_PARLIO is not set
+# default:
+CONFIG_CAMERA_SENSOR_MOTOR_DETECT_METHOD_DYNAMIC_LINK=y
+# default:
+# CONFIG_CAMERA_SENSOR_MOTOR_DETECT_METHOD_STATIC_STORE is not set
+# end of Espressif Camera Sensors Configurations
+
+#
 # ESP LCD TOUCH
 #
 # default:
@@ -2955,6 +3181,13 @@ CONFIG_MMAP_FILE_NAME_LENGTH=16
 # end of mmap file support format
 
 #
+# Espressif SCCB Configurations
+#
+# default:
+CONFIG_ESP_SCCB_TRANS_TIMEOUT_DEFAULT=500
+# end of Espressif SCCB Configurations
+
+#
 # IOT Knob
 #
 # default:
@@ -2973,6 +3206,13 @@ CONFIG_KNOB_LOW_LIMIT=-1000
 # default:
 CONFIG_LIBPNG_PREFER_PSRAM=y
 # end of libpng
+
+#
+# zlib Configurations
+#
+# default:
+CONFIG_ZLIB_PREFER_PSRAM=y
+# end of zlib Configurations
 # end of Component config
 
 # default:
@@ -3011,6 +3251,9 @@ CONFIG_STACK_CHECK_NONE=y
 # CONFIG_STACK_CHECK_STRONG is not set
 # CONFIG_STACK_CHECK_ALL is not set
 # CONFIG_WARN_WRITE_STRINGS is not set
+# CONFIG_CAM_CTLR_MIPI_CSI_ISR_IRAM_SAFE is not set
+# CONFIG_CAM_CTLR_ISP_DVP_ISR_IRAM_SAFE is not set
+# CONFIG_CAM_CTLR_DVP_CAM_ISR_IRAM_SAFE is not set
 # CONFIG_ESP_SYSTEM_PD_FLASH is not set
 CONFIG_PERIPH_CTRL_FUNC_IN_IRAM=y
 CONFIG_BROWNOUT_DET=y
@@ -3070,4 +3313,17 @@ CONFIG_ESP32_PTHREAD_TASK_NAME_DEFAULT="pthread"
 CONFIG_SPI_FLASH_WRITING_DANGEROUS_REGIONS_ABORTS=y
 # CONFIG_SPI_FLASH_WRITING_DANGEROUS_REGIONS_FAILS is not set
 # CONFIG_SPI_FLASH_WRITING_DANGEROUS_REGIONS_ALLOWED is not set
+CONFIG_CAMERA_SC2336_MIPI_RAW8_800x800_30FPS=y
+# CONFIG_CAMERA_SC2336_MIPI_RAW8_1024x600_30FPS is not set
+CONFIG_CAMERA_SC2336_MIPI_RAW8_1280x720_30FPS=y
+# CONFIG_CAMERA_SC2336_MIPI_RAW8_1920x1080_30FPS is not set
+# CONFIG_CAMERA_SC2336_MIPI_RAW10_640x480_50FPS is not set
+# CONFIG_CAMERA_SC2336_MIPI_RAW10_800x800_30FPS is not set
+# CONFIG_CAMERA_SC2336_MIPI_RAW10_1280x720_30FPS is not set
+# CONFIG_CAMERA_SC2336_MIPI_RAW10_1280x720_50FPS is not set
+# CONFIG_CAMERA_SC2336_MIPI_RAW10_1280x720_60FPS is not set
+# CONFIG_CAMERA_SC2336_MIPI_RAW10_1920x1080_25FPS_1_LANE is not set
+# CONFIG_CAMERA_SC2336_MIPI_RAW10_1920x1080_25FPS_2_LANE is not set
+# CONFIG_CAMERA_SC2336_MIPI_RAW10_1920x1080_30FPS is not set
+CONFIG_CAMERA_SC2336_DVP_RAW10_1280x720_30FPS=y
 # End of deprecated options

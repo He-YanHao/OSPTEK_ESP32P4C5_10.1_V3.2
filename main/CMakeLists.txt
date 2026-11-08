@@ -19,7 +19,7 @@ endif()
 if(APP_MODE_CAMERA_RAW)
     set(APP_SRCS "main.c" "cam_sccb_probe.c")
     set(APP_REQUIRES spi_flash esp_psram esp_mm esp_lcd lcd_jd9366
-                     esp_driver_i2c esp_driver_gpio)
+                     esp_driver_i2c esp_driver_gpio camera_preview)
 else()
     set(APP_SRCS "main.c")
     set(APP_REQUIRES spi_flash esp_psram lvgl_init guider_ui)

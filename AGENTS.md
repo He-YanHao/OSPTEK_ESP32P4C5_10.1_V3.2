@@ -72,8 +72,8 @@
 
 ## 5. 硬件约束（改引脚前必查）
 
-- 已占用：`LCD_RST=GPIO27`、`LCD_BL=GPIO26`（LEDC TIMER0/CH0，10 bit，20 kHz）、`TP_SCL=GPIO8`、`TP_SDA=GPIO7`；MIPI DSI 用 `DSI_D0/1 ± / CLK ±`，CSI 用 `CSI_D0/1 ± / CLK ±`，均为**专用 PHY 引脚，不可任意重映射**。
-- **GPIO26 的真实身份是 `CSI_RST`（摄像头复位），不是背光**：底板 V1.3 为 `GPIO26 → R4 0 Ω → CSI_RST`，`R20` 10K 上拉到 1V8，图注要求"IO 使用开漏输出"；真正的背光使能是 **`GPIO20`**（`SY7200 EN`，10K 上拉、默认常亮）。`lcd_jd9366.c` 里的 `LCD_BL_GPIO = GPIO26` 是历史遗留、在该底板上调亮度无效 —— **动背光或动摄像头前先看 `doc/工程介绍.md` 第 3 节的接线矛盾说明**，不要在两个功能间抢同一个 GPIO。
+- 已占用：`LCD_RST=GPIO27`、`LCD_BL=GPIO20`（LEDC TIMER0/CH0，10 bit，20 kHz）、`TP_SCL=GPIO8`、`TP_SDA=GPIO7`、`CSI_RST=GPIO26`；MIPI DSI 用 `DSI_D0/1 ± / CLK ±`，CSI 用 `CSI_D0/1 ± / CLK ±`，均为**专用 PHY 引脚，不可任意重映射**。
+- **`GPIO26` 是 `CSI_RST`（摄像头复位），`GPIO20` 才是背光使能**：底板 V1.3 为 `GPIO26 → R4 0 Ω → CSI_RST`（`R20` 10K 上拉到 1V8，图注要求"IO 使用开漏输出"），`GPIO20 → U2 SY7200 EN`（`R1` 10K 上拉到 +3V3）。两者无关，但历史上 `lcd_jd9366.c` 误把 `LCD_BL_GPIO` 写成 GPIO26，会和摄像头复位抢脚（IDF 报 `conflict found for GPIO[26]`）—— **已于 2026-11-09 修正为 GPIO20**。
 - **摄像头 SCCB 与触摸共用 I2C0（GPIO7/GPIO8）**：`CSI_SDA_1V8 / CSI_SCL_1V8` 经 `U5 TXS0102DCUR`（VCCA=1V8、VCCB=+3V3、OE 常使能）转换后落到同一对引脚。GUI 模式下触摸先初始化；裸显模式不初始化触摸，可独占该总线。
 - 摄像头 MCLK 由**板载 24 MHz 晶振**经 `R5` 0 Ω 提供（`J1.14`），P4 不需要输出 XCLK。
 - `GPIO34~38` 是 P4 的 Strapping / 启动模式 / 下载脚（GPIO37/38 亦为 UART0 烧录脚）；复用前查核心板手册 3.3 节。

@@ -9,10 +9,7 @@
 #include "lcd_jd9366.h"
 #include "esp_lcd_mipi_dsi.h"
 #include "esp_lcd_panel_ops.h"
-#include "esp_cache.h"
-#if defined(CONFIG_APP_CAM_S1_SCCB_PROBE)
-#include "cam_sccb_probe.h"
-#endif
+#include "camera_preview.h"
 #else
 #include "lvgl_init.h"
 #include "lvgl.h"
@@ -29,80 +26,37 @@ static gg_ui_t guider_ui;
 #if defined(CONFIG_APP_MODE_CAMERA_RAW)
 
 /*
- * S0: pure bare-metal display check, no LVGL in the whole dependency chain.
+ * 裸显模式：整条 LVGL / adapter / guider 链不参与构建。
  *
- * Two DPI-internal framebuffers are filled with the same RGB565 color bar,
- * and the band phase scrolls every 2 seconds. If the picture moves, the
- * "CPU writes framebuffer -> DSI scanout" path works. This is exactly the
- * memory that the camera frames will be written to in stage S2.
+ * 流程：面板初始化 -> DSI 内置图案自检 3 秒 -> 摄像头直显（CSI + ISP -> DSI 帧缓冲）。
+ * 画面通路在 camera_preview 组件里，本文件只负责启动与心跳。
  */
 #define RAW_FB_NUM 2
-
-static const uint16_t s_color_bar[8] = {
-    0xFFFF, /* white   */
-    0xFFE0, /* yellow  */
-    0x07FF, /* cyan    */
-    0x07E0, /* green   */
-    0xF81F, /* magenta */
-    0xF800, /* red     */
-    0x001F, /* blue    */
-    0x0000, /* black   */
-};
-
-static void raw_fill_color_bar(uint16_t *fb, int w, int h, int phase)
-{
-    uint16_t line[LCD_WIDTH];
-    for (int x = 0; x < w; x++) {
-        line[x] = s_color_bar[((x * 8 / w) + phase) & 0x7];
-    }
-    for (int y = 0; y < h; y++) {
-        memcpy(fb + (size_t)y * w, line, (size_t)w * sizeof(uint16_t));
-    }
-}
 
 static void app_main_raw(void)
 {
     ESP_ERROR_CHECK(lcd_jd9366_init(RAW_FB_NUM));
 
     esp_lcd_panel_handle_t panel = lcd_jd9366_get_panel();
-    ESP_LOGI(TAG, "S0: panel handle = %p", panel);
+    ESP_LOGI(TAG, "panel handle = %p", panel);
 
-    void *fb[RAW_FB_NUM] = {NULL, NULL};
-    ESP_ERROR_CHECK(esp_lcd_dpi_panel_get_frame_buffer(panel, RAW_FB_NUM,
-                                                       &fb[0], &fb[1]));
-    for (int i = 0; i < RAW_FB_NUM; i++) {
-        ESP_LOGI(TAG, "S0: fb[%d] = %p", i, fb[i]);
-    }
-
-#if defined(CONFIG_APP_CAM_S1_SCCB_PROBE)
-    /* S1: is the sensor alive on SCCB? GPIO7/8 are free here because the touch
-     * panel is never initialised in this mode. Runs before the pattern test so
-     * the result is visible early in the boot log. */
-    const esp_err_t sccb_err = cam_sccb_probe(NULL);
-    ESP_LOGI(TAG, "S1: SCCB probe -> %s", sccb_err == ESP_OK ? "OK" : "FAILED");
-#endif
-
-    /* Phase 1: DSI controller built-in pattern, zero CPU involvement.
-     * Confirms D-PHY / DSI / panel chain independently of any framebuffer. */
+    /* 开机自检：DSI 内置图案不经过帧缓冲，可独立确认 D-PHY / DSI / 屏 通路。
+     * 图案消失后画面交给摄像头。 */
     ESP_ERROR_CHECK(esp_lcd_dpi_panel_set_pattern(panel, MIPI_DSI_PATTERN_BAR_VERTICAL));
-    ESP_LOGI(TAG, "S0: DSI built-in test pattern ON (3s)");
+    ESP_LOGI(TAG, "boot self-test: DSI vertical bars for 3s");
     vTaskDelay(pdMS_TO_TICKS(3000));
     ESP_ERROR_CHECK(esp_lcd_dpi_panel_set_pattern(panel, MIPI_DSI_PATTERN_NONE));
-    ESP_LOGI(TAG, "S0: test pattern OFF, switching to framebuffer content");
 
-    /* Phase 2: write RGB565 into the DPI framebuffers and keep them scrolling. */
-    const size_t fb_size = (size_t)LCD_WIDTH * LCD_HEIGHT * LCD_BYTES_PER_PIXEL;
-    int phase = 0;
+    /* cfg=NULL 走本板默认：SC2336 800x800@30fps RAW8，SCCB GPIO7/8，垂直居中显示 */
+    esp_err_t err = camera_preview_start(NULL);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "camera_preview_start failed: %s", esp_err_to_name(err));
+        return;
+    }
+
     while (1) {
-        for (int i = 0; i < RAW_FB_NUM; i++) {
-            raw_fill_color_bar((uint16_t *)fb[i], LCD_WIDTH, LCD_HEIGHT, phase);
-            ESP_ERROR_CHECK(esp_cache_msync(fb[i], fb_size,
-                                            ESP_CACHE_MSYNC_FLAG_DIR_C2M));
-        }
-        ESP_LOGI(TAG, "S0: color bar phase=%d, fb_size=%u bytes",
-                 phase, (unsigned)fb_size);
-        phase = (phase + 1) & 0x7;
-        vTaskDelay(pdMS_TO_TICKS(2000));
+        vTaskDelay(pdMS_TO_TICKS(5000));
+        ESP_LOGI(TAG, "camera frames: %u", (unsigned)camera_preview_get_frame_count());
     }
 }
 
