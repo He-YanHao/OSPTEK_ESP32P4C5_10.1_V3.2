@@ -37,13 +37,13 @@ static const char *TAG = "cam_prev";
 #define CAM_DEF_FORMAT      "MIPI_2lane_24Minput_RAW8_800x800_30fps"
 #define CAM_DEF_H_RES       800
 #define CAM_DEF_V_RES       800
-#define CAM_DEF_LANE_MBPS   336   /* SC2336 800x800 RAW8 的 MIPI 速率 */
+#define CAM_DEF_LANE_MBPS   200   /* 与官方 mipi_isp_dsi 示例一致；D-PHY settle 对偏大的值更敏感 */
 #define CAM_DEF_LANES       2
 #define CAM_DEF_SDA         7
 #define CAM_DEF_SCL         8
 #define CAM_SCCB_HZ         (100 * 1000)
-/* ISP 时钟建议为传感器像素时钟的两倍以上；800x800@30fps 的 pclk 为 84 MHz */
-#define CAM_ISP_CLK_HZ      (80 * 1000 * 1000)
+/* ISP 时钟必须高于传感器像素时钟（800x800@30fps 的 pclk 为 84 MHz），留足余量 */
+#define CAM_ISP_CLK_HZ      (160 * 1000 * 1000)
 
 typedef struct {
     int sda;
@@ -104,22 +104,17 @@ static bool IRAM_ATTR cam_on_error(esp_cam_ctlr_handle_t handle, const esp_cam_c
 
 static void cam_rx_task(void *arg)
 {
-    esp_cam_ctlr_trans_t trans = {0};
+    /* 帧搬运完全由 CSI 的 DMA 完成，buffer 由 on_get_new_trans 提供；
+     * esp_cam_ctlr_receive() 只在"未注册 on_get_new_trans"时才需要，
+     * 这里注册了回调，再调 receive 只会把 trans 队列塞满。
+     * 任务只负责周期性汇报帧数，便于判断链路是否在动。 */
     uint32_t last = 0;
 
     while (s_running) {
-        esp_err_t err = esp_cam_ctlr_receive(s_csi, &trans, 1000);
-        if (err != ESP_OK && s_running) {
-            ESP_LOGW(TAG, "receive failed: %s", esp_err_to_name(err));
-            continue;
-        }
-
+        vTaskDelay(pdMS_TO_TICKS(1000));
         const uint32_t now = s_frames;
-        if (now - last >= 30) {
-            ESP_LOGI(TAG, "frames=%u (received_size=%u)", (unsigned)now,
-                     (unsigned)trans.received_size);
-            last = now;
-        }
+        ESP_LOGI(TAG, "frames=%u (+%u/s)", (unsigned)now, (unsigned)(now - last));
+        last = now;
     }
     vTaskDelete(NULL);
 }
@@ -242,6 +237,13 @@ esp_err_t camera_preview_start(const camera_preview_config_t *cfg)
     }
 
     /* ---- CSI ---- */
+    /* 注意：不能把 RAW8 -> RGB565 交给 CSI 的桥内颜色转换。
+     * esp_cam_ctlr_csi.c 的 s_is_color_format_conversion_supported() 只认
+     * RGB888/RGB565/YUV4xx，RAW8 不在白名单里（会对 RAW8 直接返回
+     * ESP_ERR_NOT_SUPPORTED）。正确做法是让 CSI 走 bypass（只做 PHY->DMA 搬运），
+     * 由 ISP 完成 RAW8 -> RGB565；把 data_type.bits_per_pixel 设成 16 既能触发
+     * bypass（ctlr->custom_data_depth 非 0），又让帧长按 RGB565 计算。
+     * data_type_min/max 必须显式给 RAW8 的 MIPI data type 0x2A，否则桥收不到包。 */
     esp_cam_ctlr_csi_config_t csi_cfg = {
         .ctlr_id = 0,
         .h_res = c.h_res,
@@ -249,6 +251,13 @@ esp_err_t camera_preview_start(const camera_preview_config_t *cfg)
         .lane_bit_rate_mbps = c.lane_mbps,
         .input_data_color_type = CAM_CTLR_COLOR_RAW8,
         .output_data_color_type = CAM_CTLR_COLOR_RGB565,
+        .data_type = {
+            .bits_per_pixel = 16,
+            /* 用标准 MIPI CSI-2 数据类型区间（0x12~0x2F，覆盖 RAW8/RAW10/RGB/YUV），
+             * 只锁 0x2A 会在传感器实际发 RAW10 时把整帧滤掉。 */
+            .data_type_min = 0x12,
+            .data_type_max = 0x2F,
+        },
         .data_lane_num = c.lanes,
         .queue_items = 2,
         .byte_swap_en = false,
@@ -302,35 +311,43 @@ esp_err_t camera_preview_start(const camera_preview_config_t *cfg)
     /* 双缓冲 ping-pong 从 fb[0] 开始 */
     s_fb_next = 0;
     s_frames = 0;
+
+    /* 与官方 mipi_isp_dsi 示例一致：传感器先开流，再启动 CSI/DMA。
+     * CSI 就绪时数据已经在路上，避免 start 时桥空转。 */
+    int stream_on = 1;
+    err = esp_cam_sensor_ioctl(s_sensor, ESP_CAM_SENSOR_IOC_S_STREAM, &stream_on);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "sensor stream on failed: %s", esp_err_to_name(err));
+        goto fail_isp_enabled;
+    }
+
     s_running = true;
 
     err = esp_cam_ctlr_start(s_csi);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "csi start failed: %s", esp_err_to_name(err));
         s_running = false;
-        goto fail_isp_enabled;
-    }
-
-    /* 传感器开流；必须在 CSI/ISP 就绪之后，否则收到的帧会被丢弃 */
-    int stream_on = 1;
-    err = esp_cam_sensor_ioctl(s_sensor, ESP_CAM_SENSOR_IOC_S_STREAM, &stream_on);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "sensor stream on failed: %s", esp_err_to_name(err));
-        esp_cam_ctlr_stop(s_csi);
-        s_running = false;
-        goto fail_isp_enabled;
+        goto fail_stream;
     }
 
     if (xTaskCreate(cam_rx_task, "cam_preview", 4096, NULL, 5, &s_task) != pdPASS) {
-        esp_cam_ctlr_stop(s_csi);
-        s_running = false;
         err = ESP_ERR_NO_MEM;
-        goto fail_isp_enabled;
+        goto fail_stream;
     }
 
     ESP_LOGI(TAG, "camera preview started");
     return ESP_OK;
 
+fail_stream: {
+        int stream_off = 0;
+        s_running = false;
+        if (s_csi) {
+            esp_cam_ctlr_stop(s_csi);
+        }
+        if (s_sensor) {
+            esp_cam_sensor_ioctl(s_sensor, ESP_CAM_SENSOR_IOC_S_STREAM, &stream_off);
+        }
+    }
 fail_isp_enabled:
     esp_isp_disable(s_isp);
 fail_isp:

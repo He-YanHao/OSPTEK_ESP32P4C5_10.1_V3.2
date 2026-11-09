@@ -75,6 +75,7 @@ components/
   lvgl_init/                显示 / 触摸 / esp_lv_adapter 的装配与启动
   guider_ui/                把 guider/ 下生成代码注册为 IDF 组件（GLOB_RECURSE 收集 .c）
   lvgl__lvgl/               LVGL 9.4.0 本地副本（便于改源码），含 lv_conf.h
+  camera_preview/           摄像头直显：SC2336 → MIPI-CSI → ISP → DSI 帧缓冲（不依赖 LVGL）
   esp32at_sdio/             占位组件：当前只有一个空 CMakeLists.txt，未实现
 guider/                     NXP GUI Guider 工程
   guider.guiguider          工程配置（版本、画布尺寸、屏幕列表）
@@ -126,9 +127,11 @@ LVGL 不是线程安全的：任何非 LVGL 任务内操作 UI，都必须用 `e
 | LVGL 9.4.0 + esp_lvgl_adapter（270° / 防撕裂） | 已实现并跑通 |
 | GUI Guider UI 骨架（键盘演示页） | 已生成，仅作链路验证 |
 | 自定义分区表（含 15M FAT） | 已配置 |
-| 裸显模式 `CAMERA_RAW` / S0 纯屏彩条（不链接 LVGL） | **2026-11-09 已实测通过**：236K 镜像、COM7 烧录、双缓冲彩条滚动；S1 摄像头探测未开始 |
+| 裸显模式 `CAMERA_RAW` / S0 纯屏彩条（不链接 LVGL） | **2026-11-09 已实测通过**：236K 镜像、COM7 烧录、双缓冲彩条滚动 |
+| S1 SCCB 探测（`cam_sccb_probe`） | **已实测通过**：GPIO7/8 扫到 `0x30 PID=0xcb3a`，复位自证 PASS |
+| S2 摄像头直显（`camera_preview`） | **已实测通过**：800x800@30fps，CSI+ISP 零拷贝写入 DPI 帧缓冲，画面居中、上下各 240 行黑边 |
 | `components/esp32at_sdio` | **空占位**，历史上曾有 AT / SPI 桥接实现，现已删除，当前不参与构建 |
-| MIPI-CSI 摄像头（SC2336）、音频（ES8311 / NS4150 / 硅麦）、TF 卡、USB、C5 无线 | 硬件已具备，软件未接入 |
+| 音频（ES8311 / NS4150 / 硅麦）、TF 卡、USB、C5 无线 | 硬件已具备，软件未接入 |
 | 后续业务功能 | 需求待补充 |
 
 ## 硬件资料（本机路径）

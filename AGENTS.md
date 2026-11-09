@@ -91,6 +91,9 @@ idf.py -p <PORT> flash monitor
 ```
 
 - 当前会话若没有 ESP-IDF 环境（`IDF_PATH` 未设置 / `idf.py` 不可用），**明确说明"未编译验证"**，不要声称构建通过，也不要伪造日志。
+- 本机环境：ESP-IDF **v6.1**（`D:\Program\Espressif\v6.1\esp-idf`），激活脚本 `C:\Espressif\tools\Microsoft.v6.1.PowerShell_profile.ps1`，串口 **COM7**。**Git Bash / MSys 不被 IDF 6.1 支持**，只能用 PowerShell / cmd。
+- **构建可能随机卡死**（`riscv32-esp-elf-gcc` CPU 归零、日志停滞十分钟以上），与代码无关，是高并发 I/O 问题。`idf.py build` 不接受 `-j` 参数；遇到时杀掉 `ninja`/`gcc` 后，在 `build/` 下改用 **`ninja -j 4`** 继续，几十秒即可通过。
+- 烧录可用 `idf.py -p COM7 flash`，但会先检测并可能触发重建；固件已是当前代码时，直接 `python -m esptool --chip esp32p4 -p COM7 -b 460800 --before default_reset --after hard_reset write_flash @flash_args`（在 `build/` 下）更快。
 - `sdkconfig` 中 `CONFIG_ESPTOOLPY_FLASHMODE_QIO=y` 与 `CONFIG_ESPTOOLPY_FLASHMODE="dio"` 不一致；涉及烧录 / Flash 配置时先用 `menuconfig` 核实，不要照抄任一项下结论。
 - 提交前最小检查：CMake `REQUIRES` 是否闭合、是否误改生成物、分区余量（`idf.py size`）、旋转 / 触摸是否仍匹配、文档事实是否同步。
 - 不要提交 `build/`、`sdkconfig.old`、`*.bin/*.elf/*.map` 等构建产物。
