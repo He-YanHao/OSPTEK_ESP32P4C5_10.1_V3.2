@@ -84,7 +84,7 @@
   - CSI 必须 `input=CAM_CTLR_COLOR_RAW8, output=CAM_CTLR_COLOR_RAW8`（`src==dst` 自动 bypass），`data_type` 全留 0；自定义 `bits_per_pixel` 会同时覆盖 `in_bpp/out_bpp`，使 `csi_transfer_size = h*v*in_bpp/64` 与传感器实际不符。
   - `lane_bit_rate_mbps` / `data_lane_num` 必须取自传感器格式的 `mipi_info`（SC2336 800x800 为 336 Mbps / 2 lane），不要照抄其它传感器示例的固定值。
   - 双缓冲必须每帧调 `esp_lcd_panel_draw_bitmap()` 提交；DPI 的 `cur_fb_index` 只在提交时更新，初始化后恒为 0。
-  - **`frames` 计数只代表 DW_GDMA 定长传输完成，不代表有画面**；用日志里的 `uniq8`（真实图像 > 30、暗场常量约 3~5）或 `camera_preview_config_t.test_pattern` 判断链路与内容。
+  - **`frames` 计数只代表 DW_GDMA 定长传输完成，不代表有画面**；用日志里的 `uniq8`（真实图像 > 30（对白色小风扇实测 124~135）、暗场常量约 3~5）或 `camera_preview_config_t.test_pattern` 判断链路与内容。
 - **不得虚构引脚 / 电气参数**。手册里没查到就写"待确认"，并给出应查的 PDF；原理图页多为图片，文本提取可能不完整，结论以原件为准。
 
 ## 6. 构建与验证
@@ -114,7 +114,7 @@ idf.py -p <PORT> flash monitor
   - `main/Kconfig.projbuild` 的 `APP_MODE` 默认 GUI，但当前 `sdkconfig` 已切到 `CAMERA_RAW`；切回需把两行改回（或 `git checkout -- sdkconfig`）并**重新 `idf.py reconfigure`**。
   - 改模式后**必须 `idf.py reconfigure` 再 build**；`MINIMAL_BUILD ON` 的条件 `REQUIRES` 有两阶段扫描陷阱，**不要删掉 `main/CMakeLists.txt` 里回读 `sdkconfig` 的兜底**（详见该文档 2.3 节）。
   - **2026-11-10 起主工作区为 Ubuntu 虚拟机**（`~/esp/OSPTEK_ESP32P4C5_10.1_V3.2/`，fish + `. ~/.espressif/v6.1/esp-idf/export.fish`，串口 `/dev/ttyACM0`）；代码只改虚拟机，由用户提交 git，其它机器从 GitHub 拉取，Windows 侧不再同步代码。
-  - S1 / S2 / 第四轮链路定位均已完成；**唯一遗留是正常成像输出暗场常量、未出图**，禁止写成"摄像头预览已跑通 / 已出图"。
+  - S1 / S2 / 第四轮链路定位及**正常成像均已完成**（2026-11-10），摄像头裸显已跑通；此前暗场常量系镜头被桌面遮挡的物理原因，不是软件问题。描述状态时可以写「已跑通」，但屏幕构图 / 颜色应以用户目视为准。
 - 改动代码后，同步更新 `README.md`、`doc/工程介绍.md`、本文件中受影响的**引脚、版本、分区、状态、目录**。
 - 引用硬件结论时标注来源（文件名 + 章节 / 页码），例如"核心板使用指南 3.3 节"。
 - 面向用户一律用**简体中文**回复；命令、路径、代码标识符保持原文。
