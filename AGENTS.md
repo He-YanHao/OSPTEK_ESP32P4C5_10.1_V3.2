@@ -80,6 +80,11 @@
 - `GPIO39~48` 是 `SD1_*`（SDIO / SD 卡相关，与 C5 协处理器通道相关），改动前查核心板引脚定义与底板原理图。
 - `RTC_VBAT`（核心板 Pin 84）**不可悬空**（2.3–3.6 V）；MIPI D-PHY 由内部 LDO 通道 3 提供 **2.5 V**；底板 V1.3 的 CSI 复位上拉为 **1.8 V**，相关 IO 建议开漏输出。
 - 显示异常先排查硬件：历史提交 `0b7ec1e` 记录过"崩溃是屏幕接口松动"，不要在未确认排线时反复改驱动参数。
+- **摄像头链路硬规则（2026-11-10 实测，见 `doc/摄像头裸显预览方案.md` 第 8 节）**：
+  - CSI 必须 `input=CAM_CTLR_COLOR_RAW8, output=CAM_CTLR_COLOR_RAW8`（`src==dst` 自动 bypass），`data_type` 全留 0；自定义 `bits_per_pixel` 会同时覆盖 `in_bpp/out_bpp`，使 `csi_transfer_size = h*v*in_bpp/64` 与传感器实际不符。
+  - `lane_bit_rate_mbps` / `data_lane_num` 必须取自传感器格式的 `mipi_info`（SC2336 800x800 为 336 Mbps / 2 lane），不要照抄其它传感器示例的固定值。
+  - 双缓冲必须每帧调 `esp_lcd_panel_draw_bitmap()` 提交；DPI 的 `cur_fb_index` 只在提交时更新，初始化后恒为 0。
+  - **`frames` 计数只代表 DW_GDMA 定长传输完成，不代表有画面**；用日志里的 `uniq8`（真实图像 > 30、暗场常量约 3~5）或 `camera_preview_config_t.test_pattern` 判断链路与内容。
 - **不得虚构引脚 / 电气参数**。手册里没查到就写"待确认"，并给出应查的 PDF；原理图页多为图片，文本提取可能不完整，结论以原件为准。
 
 ## 6. 构建与验证
@@ -102,13 +107,14 @@ idf.py -p <PORT> flash monitor
 
 - 用户已明确：**最终业务功能暂不公开**；但 **2026-11-09 已确认第一阶段验证目标**：先做一个**不链接 LVGL、不经过网络协议**的摄像头本地裸显预览（设计与分步验收见 `doc/摄像头裸显预览方案.md`）。因此：
   - 禁止臆测该功能是什么，禁止预造 API、文件名、组件行为；
-  - `components/esp32at_sdio`（空 `CMakeLists.txt`）、MIPI-CSI 摄像头、音频、TF、USB、C5 无线一律描述为"**硬件已具备 / 组件占位，软件未接入**"；
+  - `components/esp32at_sdio`（空 `CMakeLists.txt`）、音频、TF、USB、C5 无线仍描述为"**硬件已具备 / 组件占位，软件未接入**"；**MIPI-CSI 摄像头已接入**（`camera_preview`，链路已打通、正常成像待完成，见 `doc/摄像头裸显预览方案.md` 第 8 节），不要再写"软件未接入"；
   - 需求不清就提问，不要用"通常做法是……"代替本工程事实。
 - **2026-11-09 实测进度**：`APP_MODE_CAMERA_RAW` 的 **S0（不链接 LVGL 的纯屏彩条裸显）已编译 / 烧录 / 实测通过**，日志与数据见 `doc/摄像头裸显预览方案.md` 第 5.1 节。因此：
   - **不要再声称"本机没有 ESP-IDF 环境 / 未编译验证"**。本机 IDF 为 **v6.1**（`D:\Program\Espressif\v6.1\esp-idf`），串口 **COM7**；PowerShell 下 dot-source `C:\Espressif\tools\Microsoft.v6.1.PowerShell_profile.ps1` 激活。**Git Bash / MSys 不被 IDF 6.1 支持**（报 `MSys/Mingw is no longer supported`），编译烧录走 PowerShell / cmd。
   - `main/Kconfig.projbuild` 的 `APP_MODE` 默认 GUI，但当前 `sdkconfig` 已切到 `CAMERA_RAW`；切回需把两行改回（或 `git checkout -- sdkconfig`）并**重新 `idf.py reconfigure`**。
   - 改模式后**必须 `idf.py reconfigure` 再 build**；`MINIMAL_BUILD ON` 的条件 `REQUIRES` 有两阶段扫描陷阱，**不要删掉 `main/CMakeLists.txt` 里回读 `sdkconfig` 的兜底**（详见该文档 2.3 节）。
-  - S1（SC2336 探测）及之后仍未实现；摄像头 / 音频 / TF / USB / C5 无线依旧描述为"硬件已具备、软件未接入"。
+  - **2026-11-10 起主工作区为 Ubuntu 虚拟机**（`~/esp/OSPTEK_ESP32P4C5_10.1_V3.2/`，fish + `. ~/.espressif/v6.1/esp-idf/export.fish`，串口 `/dev/ttyACM0`）；代码只改虚拟机，由用户提交 git，其它机器从 GitHub 拉取，Windows 侧不再同步代码。
+  - S1 / S2 / 第四轮链路定位均已完成；**唯一遗留是正常成像输出暗场常量、未出图**，禁止写成"摄像头预览已跑通 / 已出图"。
 - 改动代码后，同步更新 `README.md`、`doc/工程介绍.md`、本文件中受影响的**引脚、版本、分区、状态、目录**。
 - 引用硬件结论时标注来源（文件名 + 章节 / 页码），例如"核心板使用指南 3.3 节"。
 - 面向用户一律用**简体中文**回复；命令、路径、代码标识符保持原文。

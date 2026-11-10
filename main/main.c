@@ -20,7 +20,7 @@
 static const char *TAG = "main";
 
 #if !defined(CONFIG_APP_MODE_CAMERA_RAW)
-static gg_ui_t guider_ui;
+gg_ui_t guider_ui;
 #endif
 
 #if defined(CONFIG_APP_MODE_CAMERA_RAW)

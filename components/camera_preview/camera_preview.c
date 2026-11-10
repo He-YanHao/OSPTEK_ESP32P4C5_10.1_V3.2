@@ -1,10 +1,18 @@
 /*
  * camera_preview —— SC2336 -> MIPI-CSI -> ISP -> DSI 帧缓冲，零拷贝直显
  *
- * 参考 ESP-IDF examples/peripherals/camera/mipi_isp_dsi，针对本板做了三处调整：
- *   1) 传感器输出 800x800（SC2336 唯一与屏幕同宽的格式），垂直居中放进 800x1280 屏；
- *   2) CSI 接收缓冲直接用 DPI 内部帧缓冲的中间区域，不做 CPU 搬运、不用 PPA；
- *   3) 两个 DPI 帧缓冲 ping-pong，避免 DPI 双缓冲扫描时出现黑帧闪烁。
+ * 数据路径（零拷贝）：SC2336 800x800 RAW8@30fps -> MIPI-CSI(bypass)
+ * -> ISP(RAW8->RGB565 + demosaic) -> DW_GDMA 直写 DPI 帧缓冲中部
+ * -> esp_lcd_panel_draw_bitmap() 提交并切换 cur_fb_index -> DSI 显示。
+ *
+ * 关键约束（详见 doc/摄像头裸显预览方案.md 第 8 节）：
+ *   1) CSI 必须 RAW8 -> RAW8（src==dst 自动 bypass），RAW8->RGB565 交给 ISP；
+ *      自定义 data_type.bits_per_pixel 会让 DMA 按错误 bpp 期望数据量。
+ *   2) lane_bit_rate_mbps / data_lane_num 取自传感器格式自带的 mipi_info，
+ *      不能照抄其它传感器示例的固定值（SC2336 800x800 为 336 Mbps / 2 lane）。
+ *   3) 双帧缓冲必须每帧调 esp_lcd_panel_draw_bitmap() 提交，DPI 的
+ *      cur_fb_index 只在提交时更新，初始化后恒为 0。
+ *   4) frames 计数只是 DMA 定长传输完成，不代表有画面；用 uniq8 判断内容。
  */
 
 #include "sdkconfig.h"
@@ -12,6 +20,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
 
 #include "esp_check.h"
 #include "esp_log.h"
@@ -37,7 +46,7 @@ static const char *TAG = "cam_prev";
 #define CAM_DEF_FORMAT      "MIPI_2lane_24Minput_RAW8_800x800_30fps"
 #define CAM_DEF_H_RES       800
 #define CAM_DEF_V_RES       800
-#define CAM_DEF_LANE_MBPS   200   /* 与官方 mipi_isp_dsi 示例一致；D-PHY settle 对偏大的值更敏感 */
+#define CAM_DEF_LANE_MBPS   200   /* 兜底值：仅当传感器格式未提供 mipi_clk 时才用 */
 #define CAM_DEF_LANES       2
 #define CAM_DEF_SDA         7
 #define CAM_DEF_SCL         8
@@ -63,6 +72,19 @@ static size_t s_fb_offset;      /* 帧在屏幕帧缓冲中的起始偏移（居
 static volatile int s_fb_next;  /* ping-pong 下标，在 CSI 回调里推进 */
 static volatile bool s_running;
 static volatile uint32_t s_frames;
+static volatile uint32_t s_commits;    /* 成功提交给 DPI 的帧数 */
+
+/* 链路健康监控：CSI host 错误标志、最近提交的帧缓冲、帧内容多样性 */
+static volatile uint32_t s_csi_err_flags;
+static volatile uint32_t s_csi_err_cnt;
+static void *s_last_fb;
+
+/* 传感器格式自带的 "MIPI RX init cfg"，CSI PHY 必须按它配置 */
+static uint32_t s_sensor_mipi_clk_hz;
+static uint32_t s_sensor_lane_num;
+static uint32_t s_sensor_hs_settle;
+static QueueHandle_t s_submit_q;        /* ISR -> 任务：待提交的 frame buffer */
+static int s_submit_y0, s_submit_y1;   /* 摄像头画面在 fb 中的行范围 */
 
 static i2c_master_bus_handle_t s_i2c_bus;
 static esp_sccb_io_handle_t s_sccb_io;
@@ -75,8 +97,8 @@ static TaskHandle_t s_task;
 
 static bool IRAM_ATTR cam_on_get_new_trans(esp_cam_ctlr_handle_t handle, esp_cam_ctlr_trans_t *trans, void *user_data)
 {
-    /* DPI 在 fb[0] / fb[1] 之间自动翻转扫描，摄像头帧必须交替写这两个缓冲，
-     * 否则会出现一帧有画面、一帧全黑的闪烁。 */
+    /* DPI 不会自动翻转扫描，必须由任务调用 esp_lcd_panel_draw_bitmap() 提交
+     * 才会切到指定 fb；这里只需保证相邻帧写不同的 fb，避开 DPI 正在显示的那块。 */
     const int idx = s_fb_next;
     s_fb_next = idx ^ 1;
 
@@ -87,16 +109,30 @@ static bool IRAM_ATTR cam_on_get_new_trans(esp_cam_ctlr_handle_t handle, esp_cam
 
 static bool IRAM_ATTR cam_on_trans_finished(esp_cam_ctlr_handle_t handle, esp_cam_ctlr_trans_t *trans, void *user_data)
 {
+    (void)handle;
+    (void)user_data;
     s_frames++;
+
+    /* 中断里只投递 buffer 指针。esp_lcd_panel_draw_bitmap() 会做 cache 写回
+     * 并切换 DPI 的 cur_fb_index，必须在任务上下文调用，不能在 ISR 里执行。 */
+    if (s_submit_q) {
+        void *fb = trans->buffer;
+        BaseType_t woken = pdFALSE;
+        xQueueSendFromISR(s_submit_q, &fb, &woken);
+        return (woken == pdTRUE);
+    }
     return false;
 }
 
 static bool IRAM_ATTR cam_on_error(esp_cam_ctlr_handle_t handle, const esp_cam_ctlr_error_event_data_t *edata, void *user_data)
 {
-    /* 中断上下文只能记标志，不能打日志 */
+    /* 中断上下文只记标志，由 cam_rx_task 每秒汇报 */
     (void)handle;
-    (void)edata;
     (void)user_data;
+    if (edata) {
+        s_csi_err_flags |= edata->csi_host_err_evts;
+    }
+    s_csi_err_cnt++;
     return false;
 }
 
@@ -107,14 +143,58 @@ static void cam_rx_task(void *arg)
     /* 帧搬运完全由 CSI 的 DMA 完成，buffer 由 on_get_new_trans 提供；
      * esp_cam_ctlr_receive() 只在"未注册 on_get_new_trans"时才需要，
      * 这里注册了回调，再调 receive 只会把 trans 队列塞满。
-     * 任务只负责周期性汇报帧数，便于判断链路是否在动。 */
+     * 任务负责把写完的 fb 提交给 DPI，并周期性汇报帧数与提交数。 */
     uint32_t last = 0;
+    TickType_t last_report = xTaskGetTickCount();
 
     while (s_running) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        const uint32_t now = s_frames;
-        ESP_LOGI(TAG, "frames=%u (+%u/s)", (unsigned)now, (unsigned)(now - last));
-        last = now;
+        void *fb = NULL;
+        if (xQueueReceive(s_submit_q, &fb, pdMS_TO_TICKS(50)) == pdTRUE) {
+            /* DPI 驱动的 cur_fb_index 只在 draw_bitmap 里更新。
+             * 传入落在内部 frame buffer 范围内的指针，驱动不拷贝数据，
+             * 只对指定行做 cache 写回，并把显示切到这块 buffer。 */
+            /* CSI/ISP 的 DMA 直接写 PSRAM，绕过 CPU cache。
+             * 必须先让 CPU 侧的陈旧 cache 行失效，否则下面 draw_bitmap 内部
+             * 的 C2M 写回会把旧数据盖回 fb，破坏刚写完的摄像头帧。
+             * fb 起点与长度都按 cache line 对齐，M2C 不带 UNALIGNED 是合法的。 */
+            esp_cache_msync((void *)fb, s_frame_bytes, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
+            esp_err_t err = esp_lcd_panel_draw_bitmap(s_panel, 0, s_submit_y0,
+                                                      LCD_WIDTH, s_submit_y1, fb);
+            if (err == ESP_OK) {
+                s_commits++;
+                s_last_fb = fb;
+            } else {
+                ESP_LOGE(TAG, "draw_bitmap failed: %s", esp_err_to_name(err));
+            }
+        }
+
+        TickType_t now_tick = xTaskGetTickCount();
+        if (now_tick - last_report >= pdMS_TO_TICKS(1000)) {
+            const uint32_t now = s_frames;
+
+            /* 帧内容健康指标：统计最近一帧前 16 KiB 里不同字节值的个数。
+             * 真实图像通常 > 30；暗场常量约 3~5；链路无数据会更少。
+             * frames 只是 DMA 定长传输完成，不能代表有画面，故保留此判据。
+             * 每秒只扫 16 KiB，开销可忽略。 */
+            int uniq8 = 0;
+            if (s_last_fb) {
+                const size_t scan = 16 * 1024;
+                esp_cache_msync(s_last_fb, scan, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
+                const uint8_t *p = (const uint8_t *)s_last_fb;
+                uint8_t seen[256] = {0};
+                for (size_t i = 0; i < scan; i++) {
+                    seen[p[i]] = 1;
+                }
+                for (int i = 0; i < 256; i++) {
+                    uniq8 += seen[i];
+                }
+            }
+            ESP_LOGI(TAG, "frames=%u (+%u/s), commits=%u, uniq8=%d, csi_err=%u flags=0x%08lx",
+                     (unsigned)now, (unsigned)(now - last), (unsigned)s_commits,
+                     uniq8, (unsigned)s_csi_err_cnt, (unsigned long)s_csi_err_flags);
+            last = now;
+            last_report = now_tick;
+        }
     }
     vTaskDelete(NULL);
 }
@@ -181,6 +261,14 @@ static esp_err_t cam_sensor_init(const cam_cfg_resolved_t *c)
         return ESP_ERR_NOT_SUPPORTED;
     }
 
+    s_sensor_mipi_clk_hz = chosen->mipi_info.mipi_clk;
+    s_sensor_lane_num    = chosen->mipi_info.lane_num;
+    s_sensor_hs_settle   = chosen->mipi_info.hs_settle;
+    ESP_LOGI(TAG, "sensor mipi info: clk=%u Hz (%u Mbps/lane), lanes=%u, hs_settle=%u",
+             (unsigned)s_sensor_mipi_clk_hz,
+             (unsigned)(s_sensor_mipi_clk_hz / 1000000),
+             (unsigned)s_sensor_lane_num, (unsigned)s_sensor_hs_settle);
+
     ESP_RETURN_ON_ERROR(esp_cam_sensor_set_format(s_sensor, chosen), TAG, "set format failed");
     ESP_LOGI(TAG, "format in use: %s", chosen->name);
     return ESP_OK;
@@ -220,6 +308,9 @@ esp_err_t camera_preview_start(const camera_preview_config_t *cfg)
     }
     /* 垂直居中：上下各留 (1280 - v_res) / 2 行黑边 */
     s_fb_offset = (size_t)(LCD_HEIGHT - c.v_res) / 2 * LCD_WIDTH * 2;
+    /* DPI 提交时只同步摄像头实际占用的行，避免每帧 clean 整个 2 MB fb */
+    s_submit_y0 = (LCD_HEIGHT - (int)c.v_res) / 2;
+    s_submit_y1 = s_submit_y0 + (int)c.v_res;
 
     const size_t fb_bytes = (size_t)LCD_WIDTH * LCD_HEIGHT * 2;
     for (int i = 0; i < 2; i++) {
@@ -236,32 +327,39 @@ esp_err_t camera_preview_start(const camera_preview_config_t *cfg)
         goto fail_sensor;
     }
 
-    /* ---- CSI ---- */
-    /* 注意：不能把 RAW8 -> RGB565 交给 CSI 的桥内颜色转换。
-     * esp_cam_ctlr_csi.c 的 s_is_color_format_conversion_supported() 只认
-     * RGB888/RGB565/YUV4xx，RAW8 不在白名单里（会对 RAW8 直接返回
-     * ESP_ERR_NOT_SUPPORTED）。正确做法是让 CSI 走 bypass（只做 PHY->DMA 搬运），
-     * 由 ISP 完成 RAW8 -> RGB565；把 data_type.bits_per_pixel 设成 16 既能触发
-     * bypass（ctlr->custom_data_depth 非 0），又让帧长按 RGB565 计算。
-     * data_type_min/max 必须显式给 RAW8 的 MIPI data type 0x2A，否则桥收不到包。 */
+    /* 传感器格式声明的 MIPI 速率优先；cfg 显式传值最高优先级，便于做速率对照。 */
+    const int phy_mbps = (cfg && cfg->lane_bit_rate_mbps > 0)
+                             ? c.lane_mbps
+                             : (s_sensor_mipi_clk_hz
+                                    ? (int)(s_sensor_mipi_clk_hz / 1000000)
+                                    : c.lane_mbps);
+    const int phy_lanes = (cfg && cfg->data_lane_num > 0)
+                              ? c.lanes
+                              : (s_sensor_lane_num ? (int)s_sensor_lane_num : c.lanes);
+
+    /* ---- CSI：照官方 examples/peripherals/isp/multi_pipelines 配置 ----
+     * SC2336 输出 RAW8（8 bpp），CSI 桥必须同样声明 RAW8 -> RAW8：
+     *   - src == dst 时 s_csi_ctlr_format_conversion() 自动置 bypass，
+     *     不会触发 "failed to configure format conversion"；
+     *   - data_type 全留 0 -> 驱动按 color type 推出 in_bpp/out_bpp = 8，
+     *     并自动把 MIPI data type 过滤区间设成 0x12~0x2F。
+     * 若自定义 data_type.bits_per_pixel，驱动会用它同时覆盖 in_bpp/out_bpp，
+     * 而 csi_transfer_size = h*v*in_bpp/64 决定 DMA 传输长度；设错会让 DMA
+     * 期望的数据量与传感器实际不符。RAW8 -> RGB565 全部交给下面的 ISP。 */
     esp_cam_ctlr_csi_config_t csi_cfg = {
         .ctlr_id = 0,
         .h_res = c.h_res,
         .v_res = c.v_res,
-        .lane_bit_rate_mbps = c.lane_mbps,
+        .lane_bit_rate_mbps = phy_mbps,
         .input_data_color_type = CAM_CTLR_COLOR_RAW8,
-        .output_data_color_type = CAM_CTLR_COLOR_RGB565,
-        .data_type = {
-            .bits_per_pixel = 16,
-            /* 用标准 MIPI CSI-2 数据类型区间（0x12~0x2F，覆盖 RAW8/RAW10/RGB/YUV），
-             * 只锁 0x2A 会在传感器实际发 RAW10 时把整帧滤掉。 */
-            .data_type_min = 0x12,
-            .data_type_max = 0x2F,
-        },
-        .data_lane_num = c.lanes,
+        .output_data_color_type = CAM_CTLR_COLOR_RAW8,
+        .data_lane_num = phy_lanes,
         .queue_items = 2,
         .byte_swap_en = false,
     };
+    ESP_LOGI(TAG, "csi cfg: RAW8->RAW8 bypass, %ux%u, %d lanes @ %d Mbps (mipi_clk=%u Hz)",
+             (unsigned)c.h_res, (unsigned)c.v_res, phy_lanes, phy_mbps,
+             (unsigned)s_sensor_mipi_clk_hz);
     err = esp_cam_new_csi_ctlr(&csi_cfg, &s_csi);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "csi init failed: %s", esp_err_to_name(err));
@@ -308,9 +406,37 @@ esp_err_t camera_preview_start(const camera_preview_config_t *cfg)
         goto fail_isp;
     }
 
+    /* RAW8 -> RGB565 必须显式配置并使能 demosaic。
+     * 只 new_processor + enable 时 ISP 输出的是未去马赛克的 Bayer/填充数据，
+     * 屏幕上就是错位条纹而非图像。参数照抄官方 isp/multi_pipelines 示例。 */
+    esp_isp_demosaic_config_t demosaic_cfg = {
+        .grad_ratio = { .integer = 2, .decimal = 5 },
+    };
+    err = esp_isp_demosaic_configure(s_isp, &demosaic_cfg);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "isp demosaic configure failed: %s", esp_err_to_name(err));
+        goto fail_isp_enabled;
+    }
+    err = esp_isp_demosaic_enable(s_isp);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "isp demosaic enable failed: %s", esp_err_to_name(err));
+        goto fail_isp_enabled;
+    }
+    ESP_LOGI(TAG, "isp demosaic enabled (grad_ratio 2.5)");
+
     /* 双缓冲 ping-pong 从 fb[0] 开始 */
     s_fb_next = 0;
     s_frames = 0;
+    s_commits = 0;
+    s_csi_err_flags = 0;
+    s_csi_err_cnt = 0;
+    s_last_fb = NULL;
+
+    s_submit_q = xQueueCreate(3, sizeof(void *));
+    if (!s_submit_q) {
+        err = ESP_ERR_NO_MEM;
+        goto fail_isp_enabled;
+    }
 
     /* 与官方 mipi_isp_dsi 示例一致：传感器先开流，再启动 CSI/DMA。
      * CSI 就绪时数据已经在路上，避免 start 时桥空转。 */
@@ -319,6 +445,18 @@ esp_err_t camera_preview_start(const camera_preview_config_t *cfg)
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "sensor stream on failed: %s", esp_err_to_name(err));
         goto fail_isp_enabled;
+    }
+
+    /* 可选：让传感器自己输出内部灰度渐变测试图案，用于独立验证
+     * sensor TX -> MIPI -> CSI -> ISP -> DMA 整条链路。cfg=NULL 时关闭，
+     * 正常成像。SC2336 实现为写 0x4501 的 bit3。 */
+    if (cfg && cfg->test_pattern) {
+        int test_pat = 1;
+        err = esp_cam_sensor_ioctl(s_sensor, ESP_CAM_SENSOR_IOC_S_TEST_PATTERN, &test_pat);
+        ESP_LOGI(TAG, "sensor test pattern on: %s", esp_err_to_name(err));
+        if (err != ESP_OK) {
+            goto fail_stream;
+        }
     }
 
     s_running = true;
@@ -370,7 +508,7 @@ esp_err_t camera_preview_stop(void)
 
     s_running = false;
     if (s_task) {
-        vTaskDelay(pdMS_TO_TICKS(50));
+        vTaskDelay(pdMS_TO_TICKS(100));
         s_task = NULL;
     }
 
@@ -383,6 +521,10 @@ esp_err_t camera_preview_stop(void)
         esp_cam_ctlr_disable(s_csi);
         esp_cam_ctlr_del(s_csi);
         s_csi = NULL;
+    }
+    if (s_submit_q) {
+        vQueueDelete(s_submit_q);
+        s_submit_q = NULL;
     }
     if (s_isp) {
         esp_isp_disable(s_isp);

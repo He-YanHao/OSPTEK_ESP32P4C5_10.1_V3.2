@@ -2,7 +2,7 @@
 
 > 基于 **ESP32-P4**（+ ESP32-C5 无线协处理器）的 10.1 英寸 MIPI-DSI 显示 / 触摸 / LVGL 工程基线。
 >
-> **当前状态**：显示、触摸、LVGL 与 GUI Guider UI 骨架已跑通；新增 `APP_MODE` 开关，其中 **`CAMERA_RAW` 裸显模式的 S0（不链接 LVGL 的纯屏彩条）已于 2026-11-09 在本板编译 / 烧录 / 实测通过**（默认仍是 GUI 模式）。`components/esp32at_sdio` 为空占位组件，摄像头 / 音频 / TF / USB / 无线等硬件能力尚未在软件中接入。后续业务功能的需求待补充，本文档不对其做假设。
+> **当前状态**：显示、触摸、LVGL 与 GUI Guider UI 骨架已跑通；`APP_MODE` 可切换 GUI 基线与 `CAMERA_RAW` 裸显。**2026-11-10 在 Ubuntu 编译虚拟机上完成摄像头链路定位与修复**：MIPI-CSI → ISP → DMA → DPI 全链路已由传感器测试图案验证打通（彩色条纹 → 灰色渐变，用户目视确认），但**正常成像仍输出暗场常量、画面未出图**，是当前唯一遗留（详见 `doc/摄像头裸显预览方案.md` 第 8 节）。**虚拟机 `~/esp/OSPTEK_ESP32P4C5_10.1_V3.2/` 是唯一主工作区**，Windows 侧不再同步代码。`components/esp32at_sdio` 为空占位组件，音频 / TF / USB / 无线等硬件能力尚未在软件中接入。后续业务功能的需求待补充，本文档不对其做假设。
 
 ## 一眼看懂
 
@@ -47,13 +47,13 @@ idf.py size-components         # 关注 factory 分区余量（仅 768K）
 | 模式 | 说明 | `main` 的 `REQUIRES` |
 | --- | --- | --- |
 | `APP_MODE_GUI`（默认） | LVGL + GUI Guider 基线 | `spi_flash esp_psram lvgl_init guider_ui` |
-| `APP_MODE_CAMERA_RAW` | 不链接 GUI 链的裸显模式（当前为 S0 彩条验收） | `spi_flash esp_psram esp_mm esp_lcd lcd_jd9366` |
+| `APP_MODE_CAMERA_RAW` | 不链接 GUI 链的裸显模式：`lcd_jd9366` + `camera_preview`，开机 3 秒 DSI 彩条自检后进入摄像头直显 | `spi_flash esp_psram esp_mm esp_lcd esp_driver_i2c esp_driver_gpio lcd_jd9366 camera_preview` |
 
 ```bash
 idf.py menuconfig             # Application Mode → Camera raw preview
 idf.py reconfigure            # 关键：MINIMAL_BUILD 下必须刷新 CMake 组件依赖
 idf.py build
-idf.py -p COM7 flash
+idf.py -p /dev/ttyACM0 flash    # Ubuntu 虚拟机；Windows 侧为 COM7
 ```
 
 > 切回 GUI：选回 `APP_MODE_GUI` → `idf.py reconfigure` → build / flash。实测数据与两个构建坑见 `doc/摄像头裸显预览方案.md` 第 2.3 / 5.1 节。
@@ -129,7 +129,8 @@ LVGL 不是线程安全的：任何非 LVGL 任务内操作 UI，都必须用 `e
 | 自定义分区表（含 15M FAT） | 已配置 |
 | 裸显模式 `CAMERA_RAW` / S0 纯屏彩条（不链接 LVGL） | **2026-11-09 已实测通过**：236K 镜像、COM7 烧录、双缓冲彩条滚动 |
 | S1 SCCB 探测（`cam_sccb_probe`） | **已实测通过**：GPIO7/8 扫到 `0x30 PID=0xcb3a`，复位自证 PASS |
-| S2 摄像头直显（`camera_preview`） | **已实测通过**：800x800@30fps，CSI+ISP 零拷贝写入 DPI 帧缓冲，画面居中、上下各 240 行黑边 |
+| S2 摄像头直显（`camera_preview`） | **已实测**：800x800@30fps，CSI+ISP 零拷贝写入 DPI 帧缓冲，画面居中、上下各 240 行黑边 |
+| S3 / 链路打通（2026-11-10，Ubuntu 虚拟机） | **测试图案验收通过**：彩条 → 灰度渐变，证明 sensor TX→CSI→ISP→DMA→DSI 全链路正常；**正常成像仍为暗场常量、未出图**，见 `doc/摄像头裸显预览方案.md` 第 8 节 |
 | `components/esp32at_sdio` | **空占位**，历史上曾有 AT / SPI 桥接实现，现已删除，当前不参与构建 |
 | 音频（ES8311 / NS4150 / 硅麦）、TF 卡、USB、C5 无线 | 硬件已具备，软件未接入 |
 | 后续业务功能 | 需求待补充 |
@@ -158,7 +159,7 @@ LVGL 不是线程安全的：任何非 LVGL 任务内操作 UI，都必须用 `e
 - `AGENTS.md`：AI / 自动化工具阅读本仓库的规则与约束
 - `doc/工程介绍.md`：完整工程介绍（架构、引脚、启动流程、扩展指南、已知坑）
 - `doc/Matter-WebRTC摄像头方案适配评估.md`：Matter 1.5 / WebRTC / H.264 摄像头方案针对本工程的适配评估（**评估稿，非已确定需求**；当前仅作为工程文档）
-- `doc/摄像头裸显预览方案.md`：第一阶段验证目标 —— 不链接 LVGL、不碰协议的摄像头本地直显（**S0 已实测通过，含完整构建/烧录记录；S1 起仍为设计稿**）
+- `doc/摄像头裸显预览方案.md`：第一阶段验证目标 —— 不链接 LVGL、不碰协议的摄像头本地直显（**S0~S2 实测记录 + 第 8 节链路定位与最终配置**；正常成像待完成）
 - `guider/SCR.txt`：GUI Guider 生成内容的第三方许可清单
 - 个人笔记库（工程外）：`D:\Documents\Notes\嵌入式\01_平台层（硬件）\ESP32\P4` —— `鱼鹰P4C5-AT.md`（AT 通道引脚速查）、`ESP32-P4-通用代码骨架.md`（平台通用代码）。分流规则见 `AGENTS.md` 第 9 节。
 
