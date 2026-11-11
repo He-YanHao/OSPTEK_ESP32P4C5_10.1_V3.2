@@ -40,12 +40,10 @@ static void app_main_raw(void)
     esp_lcd_panel_handle_t panel = lcd_jd9366_get_panel();
     ESP_LOGI(TAG, "panel handle = %p", panel);
 
-    /* 开机自检：DSI 内置图案不经过帧缓冲，可独立确认 D-PHY / DSI / 屏 通路。
-     * 图案消失后画面交给摄像头。 */
-    ESP_ERROR_CHECK(esp_lcd_dpi_panel_set_pattern(panel, MIPI_DSI_PATTERN_BAR_VERTICAL));
-    ESP_LOGI(TAG, "boot self-test: DSI vertical bars for 3s");
-    vTaskDelay(pdMS_TO_TICKS(3000));
-    ESP_ERROR_CHECK(esp_lcd_dpi_panel_set_pattern(panel, MIPI_DSI_PATTERN_NONE));
+    /* 不做 DSI 内置彩条自检：pattern -> framebuffer 的模式切换在部分上电状态下
+     * 结果不稳定，会残留彩条 / 条纹错位直至黑屏。D-PHY / DSI / 面板通路已由
+     * GUI 基线反复验证，这里让 DPI 从初始化起就始终保持在 framebuffer 模式。 */
+    ESP_LOGI(TAG, "skip DSI pattern self-test (framebuffer mode only)");
 
     /* cfg=NULL 走本板默认：SC2336 800x800@30fps RAW8，SCCB GPIO7/8，垂直居中显示 */
     esp_err_t err = camera_preview_start(NULL);

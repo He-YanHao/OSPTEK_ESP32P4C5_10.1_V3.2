@@ -4,6 +4,7 @@
  * 数据路径（零拷贝）：SC2336 800x800 RAW8@30fps -> MIPI-CSI(bypass)
  * -> ISP(RAW8->RGB565 + demosaic) -> DW_GDMA 直写 DPI 帧缓冲中部
  * -> esp_lcd_panel_draw_bitmap() 提交并切换 cur_fb_index -> DSI 显示。
+ * ISP 侧补齐 WBG / gamma / color 色彩链，避免只开 demosaic 时偏绿发暗。
  *
  * 关键约束（详见 doc/摄像头裸显预览方案.md 第 8 节）：
  *   1) CSI 必须 RAW8 -> RAW8（src==dst 自动 bypass），RAW8->RGB565 交给 ISP；
@@ -17,6 +18,7 @@
 
 #include "sdkconfig.h"
 #include <string.h>
+#include <math.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -41,6 +43,13 @@
 
 static const char *TAG = "cam_prev";
 
+/* 官方 isp/multi_pipelines 的默认 gamma：pow(x/256, 0.7)*256，
+ * 把线性 Bayer/RAW 的暗部抬起来，否则屏幕一片发暗。 */
+static uint32_t cam_gamma_curve(uint32_t x)
+{
+    return (uint32_t)(pow((double)x / 256.0, 0.7) * 256.0);
+}
+
 /* 本板默认值：底板 V1.3，SCCB 经 U5 电平转换落到 GPIO7/8，与触摸共用 I2C0。
  * 裸显模式下触摸未初始化，这条总线只归摄像头使用。 */
 #define CAM_DEF_FORMAT      "MIPI_2lane_24Minput_RAW8_800x800_30fps"
@@ -53,6 +62,11 @@ static const char *TAG = "cam_prev";
 #define CAM_SCCB_HZ         (100 * 1000)
 /* ISP 时钟必须高于传感器像素时钟（800x800@30fps 的 pclk 为 84 MHz），留足余量 */
 #define CAM_ISP_CLK_HZ      (160 * 1000 * 1000)
+/* WBG 增益归一化：G 恒为 256，R/B 由灰世界统计收敛到 R≈G≈B */
+#define CAM_WBG_NORM        256
+#define CAM_WBG_MIN         128
+#define CAM_WBG_MAX         1023
+#define CAM_AWB_SMOOTH      0.25f
 
 typedef struct {
     int sda;
@@ -85,6 +99,9 @@ static uint32_t s_sensor_lane_num;
 static uint32_t s_sensor_hs_settle;
 static QueueHandle_t s_submit_q;        /* ISR -> 任务：待提交的 frame buffer */
 static int s_submit_y0, s_submit_y1;   /* 摄像头画面在 fb 中的行范围 */
+static int  s_single_buffer;            /* 1: 固定写 fb[0] 且不提交，用于对照 */
+static int  s_awb_enable;               /* 1: 每秒按灰世界自动更新 WBG 增益 */
+static float s_wb_r = CAM_WBG_NORM, s_wb_b = CAM_WBG_NORM;
 
 static i2c_master_bus_handle_t s_i2c_bus;
 static esp_sccb_io_handle_t s_sccb_io;
@@ -99,8 +116,10 @@ static bool IRAM_ATTR cam_on_get_new_trans(esp_cam_ctlr_handle_t handle, esp_cam
 {
     /* DPI 不会自动翻转扫描，必须由任务调用 esp_lcd_panel_draw_bitmap() 提交
      * 才会切到指定 fb；这里只需保证相邻帧写不同的 fb，避开 DPI 正在显示的那块。 */
-    const int idx = s_fb_next;
-    s_fb_next = idx ^ 1;
+    const int idx = s_single_buffer ? 0 : s_fb_next;
+    if (!s_single_buffer) {
+        s_fb_next = idx ^ 1;
+    }
 
     trans->buffer = (uint8_t *)s_fb[idx] + s_fb_offset;
     trans->buflen = s_frame_bytes;
@@ -157,14 +176,20 @@ static void cam_rx_task(void *arg)
              * 必须先让 CPU 侧的陈旧 cache 行失效，否则下面 draw_bitmap 内部
              * 的 C2M 写回会把旧数据盖回 fb，破坏刚写完的摄像头帧。
              * fb 起点与长度都按 cache line 对齐，M2C 不带 UNALIGNED 是合法的。 */
-            esp_cache_msync((void *)fb, s_frame_bytes, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
-            esp_err_t err = esp_lcd_panel_draw_bitmap(s_panel, 0, s_submit_y0,
-                                                      LCD_WIDTH, s_submit_y1, fb);
-            if (err == ESP_OK) {
-                s_commits++;
+            if (s_single_buffer) {
+                /* 单缓冲对照：DPI 恒扫 fb[0]，不做提交，只记录用于内容统计 */
                 s_last_fb = fb;
+                s_commits++;
             } else {
-                ESP_LOGE(TAG, "draw_bitmap failed: %s", esp_err_to_name(err));
+                esp_cache_msync((void *)fb, s_frame_bytes, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
+                esp_err_t err = esp_lcd_panel_draw_bitmap(s_panel, 0, s_submit_y0,
+                                                          LCD_WIDTH, s_submit_y1, fb);
+                if (err == ESP_OK) {
+                    s_commits++;
+                    s_last_fb = fb;
+                } else {
+                    ESP_LOGE(TAG, "draw_bitmap failed: %s", esp_err_to_name(err));
+                }
             }
         }
 
@@ -177,21 +202,66 @@ static void cam_rx_task(void *arg)
              * frames 只是 DMA 定长传输完成，不能代表有画面，故保留此判据。
              * 每秒只扫 16 KiB，开销可忽略。 */
             int uniq8 = 0;
+            float mr = 0.0f, mg = 0.0f, mb = 0.0f;
+            uint32_t sample_n = 0;
             if (s_last_fb) {
                 const size_t scan = 16 * 1024;
                 esp_cache_msync(s_last_fb, scan, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
-                const uint8_t *p = (const uint8_t *)s_last_fb;
+                const uint8_t *p8 = (const uint8_t *)s_last_fb;
                 uint8_t seen[256] = {0};
                 for (size_t i = 0; i < scan; i++) {
-                    seen[p[i]] = 1;
+                    seen[p8[i]] = 1;
                 }
                 for (int i = 0; i < 256; i++) {
                     uniq8 += seen[i];
                 }
+
+                /* RGB565 通道均值：R/B 为 5bit，G 为 6bit，统一折算到 5bit 尺度。
+                 * 偏绿时 mg 明显大于 mr/mb；灰世界 AWB 据此把 R/B 增益抬上来。 */
+                const uint16_t *px = (const uint16_t *)s_last_fb;
+                uint32_t sr = 0, sg = 0, sb = 0;
+                for (size_t i = 0; i < scan / 2; i += 4) {
+                    const uint16_t v = px[i];
+                    sr += (v >> 11) & 0x1f;
+                    sg += (v >> 5) & 0x3f;
+                    sb += v & 0x1f;
+                    sample_n++;
+                }
+                if (sample_n) {
+                    mr = (float)sr / sample_n;
+                    mg = ((float)sg / sample_n) * (31.0f / 63.0f);
+                    mb = (float)sb / sample_n;
+                }
             }
-            ESP_LOGI(TAG, "frames=%u (+%u/s), commits=%u, uniq8=%d, csi_err=%u flags=0x%08lx",
+
+            /* 灰世界自动白平衡：从输出端 RGB565 统计回写 WBG，令 R≈G≈B。
+             * 不用 ISP AWB 控制器/统计中断，闭环简单且不占 ISR。每秒一次、带平滑。 */
+            if (s_awb_enable && s_isp && sample_n && mr > 0.5f && mb > 0.5f) {
+                float target_r = mg / mr * CAM_WBG_NORM;
+                float target_b = mg / mb * CAM_WBG_NORM;
+                target_r = target_r < CAM_WBG_MIN ? CAM_WBG_MIN : (target_r > CAM_WBG_MAX ? CAM_WBG_MAX : target_r);
+                target_b = target_b < CAM_WBG_MIN ? CAM_WBG_MIN : (target_b > CAM_WBG_MAX ? CAM_WBG_MAX : target_b);
+                s_wb_r += CAM_AWB_SMOOTH * (target_r - s_wb_r);
+                s_wb_b += CAM_AWB_SMOOTH * (target_b - s_wb_b);
+                isp_wbg_gain_t gain = {
+                    .gain_r = (uint32_t)(s_wb_r + 0.5f),
+                    .gain_g = CAM_WBG_NORM,
+                    .gain_b = (uint32_t)(s_wb_b + 0.5f),
+                };
+                esp_err_t werr = esp_isp_wbg_set_wb_gain(s_isp, gain);
+                if (werr != ESP_OK) {
+                    ESP_LOGW(TAG, "wbg set gain failed: %s", esp_err_to_name(werr));
+                }
+            }
+
+            /* rgb10 为 R/G/B 均值乘 10 的整数，便于不靠目视判断偏绿是否收敛；
+             * wb 为当前 WBG 增益（G 恒 256）。 */
+            ESP_LOGI(TAG, "frames=%u (+%u/s), commits=%u, uniq8=%d, rgb10=%u/%u/%u wb=%u/256/%u, csi_err=%u flags=0x%08lx",
                      (unsigned)now, (unsigned)(now - last), (unsigned)s_commits,
-                     uniq8, (unsigned)s_csi_err_cnt, (unsigned long)s_csi_err_flags);
+                     uniq8,
+                     (unsigned)(mr * 10.0f), (unsigned)(mg * 10.0f), (unsigned)(mb * 10.0f),
+                     (unsigned)(s_wb_r + 0.5f), (unsigned)(s_wb_b + 0.5f),
+                     (unsigned)s_csi_err_cnt, (unsigned long)s_csi_err_flags);
             last = now;
             last_report = now_tick;
         }
@@ -281,6 +351,15 @@ esp_err_t camera_preview_start(const camera_preview_config_t *cfg)
     if (s_running) {
         return ESP_ERR_INVALID_STATE;
     }
+
+    /* 默认：双缓冲 ping-pong + 每帧提交（消除撕裂）；灰世界 AWB 开启。 */
+    s_single_buffer = (cfg && cfg->single_buffer) ? 1 : 0;
+    s_awb_enable    = (cfg && cfg->awb_disable) ? 0 : 1;
+    s_wb_r = CAM_WBG_NORM;
+    s_wb_b = CAM_WBG_NORM;
+    ESP_LOGI(TAG, "mode: %s buffer, gray-world AWB %s",
+             s_single_buffer ? "single" : "double",
+             s_awb_enable ? "on" : "off");
 
     const cam_cfg_resolved_t c = {
         .sda = (cfg && cfg->sccb_sda_gpio > 0) ? cfg->sccb_sda_gpio : CAM_DEF_SDA,
@@ -406,6 +485,32 @@ esp_err_t camera_preview_start(const camera_preview_config_t *cfg)
         goto fail_isp;
     }
 
+    /* ---- WBG：Bayer 域白平衡增益 ----
+     * Bayer 阵列 G 采样点是 R/B 的两倍，不做 WBG 输出必然偏绿。
+     * 这里不接 ISP AWB 控制器，改由 cam_rx_task 按输出 RGB565 做灰世界闭环。 */
+    esp_isp_wbg_config_t wbg_cfg = {
+        .flags = { .update_once_configured = true },
+    };
+    err = esp_isp_wbg_configure(s_isp, &wbg_cfg);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "isp wbg configure failed: %s", esp_err_to_name(err));
+        goto fail_isp_enabled;
+    }
+    err = esp_isp_wbg_enable(s_isp);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "isp wbg enable failed: %s", esp_err_to_name(err));
+        goto fail_isp_enabled;
+    }
+    isp_wbg_gain_t wb_init = {
+        .gain_r = CAM_WBG_NORM, .gain_g = CAM_WBG_NORM, .gain_b = CAM_WBG_NORM,
+    };
+    err = esp_isp_wbg_set_wb_gain(s_isp, wb_init);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "isp wbg set gain failed: %s", esp_err_to_name(err));
+        goto fail_isp_enabled;
+    }
+    ESP_LOGI(TAG, "isp wbg enabled (neutral 256/256/256, gray-world loop)");
+
     /* RAW8 -> RGB565 必须显式配置并使能 demosaic。
      * 只 new_processor + enable 时 ISP 输出的是未去马赛克的 Bayer/填充数据，
      * 屏幕上就是错位条纹而非图像。参数照抄官方 isp/multi_pipelines 示例。 */
@@ -423,6 +528,54 @@ esp_err_t camera_preview_start(const camera_preview_config_t *cfg)
         goto fail_isp_enabled;
     }
     ESP_LOGI(TAG, "isp demosaic enabled (grad_ratio 2.5)");
+
+    /* ---- gamma：把线性数据的暗部抬起来（官方示例 pow(x/256,0.7)*256） ---- */
+    isp_gamma_curve_points_t gamma_pts = {};
+    err = esp_isp_gamma_fill_curve_points(cam_gamma_curve, &gamma_pts);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "isp gamma curve failed: %s", esp_err_to_name(err));
+        goto fail_isp_enabled;
+    }
+    err = esp_isp_gamma_configure(s_isp, COLOR_COMPONENT_R, &gamma_pts);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "isp gamma configure R failed: %s", esp_err_to_name(err));
+        goto fail_isp_enabled;
+    }
+    err = esp_isp_gamma_configure(s_isp, COLOR_COMPONENT_G, &gamma_pts);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "isp gamma configure G failed: %s", esp_err_to_name(err));
+        goto fail_isp_enabled;
+    }
+    err = esp_isp_gamma_configure(s_isp, COLOR_COMPONENT_B, &gamma_pts);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "isp gamma configure B failed: %s", esp_err_to_name(err));
+        goto fail_isp_enabled;
+    }
+    err = esp_isp_gamma_enable(s_isp);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "isp gamma enable failed: %s", esp_err_to_name(err));
+        goto fail_isp_enabled;
+    }
+    ESP_LOGI(TAG, "isp gamma enabled (0.7)");
+
+    /* ---- color：对比度 / 饱和度保持中性，补齐全链路 ---- */
+    esp_isp_color_config_t color_cfg = {
+        .color_contrast   = { .integer = 1, .decimal = 0 },
+        .color_saturation = { .integer = 1, .decimal = 0 },
+        .color_hue = 0,
+        .color_brightness = 0,
+    };
+    err = esp_isp_color_configure(s_isp, &color_cfg);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "isp color configure failed: %s", esp_err_to_name(err));
+        goto fail_isp_enabled;
+    }
+    err = esp_isp_color_enable(s_isp);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "isp color enable failed: %s", esp_err_to_name(err));
+        goto fail_isp_enabled;
+    }
+    ESP_LOGI(TAG, "isp color enabled (contrast 1.0, saturation 1.0)");
 
     /* 双缓冲 ping-pong 从 fb[0] 开始 */
     s_fb_next = 0;
