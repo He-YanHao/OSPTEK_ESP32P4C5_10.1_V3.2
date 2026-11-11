@@ -9,13 +9,19 @@ choice APP_MODE
         GUI keeps the LVGL / GUI Guider baseline untouched.
         Camera raw preview links no LVGL component at all (stage S0):
         it only brings in lcd_jd9366 and writes RGB565 data into the
-        DPI framebuffers directly. Switch back to GUI at any time.
+        DPI framebuffers directly.
+        Network brings in ESP-Hosted (C5 as an SDIO NIC) together with
+        the standard lwIP / esp_netif / socket stack (stage S2).
+        Switch back to GUI at any time.
 
     config APP_MODE_GUI
         bool "GUI (LVGL + GUI Guider baseline)"
 
     config APP_MODE_CAMERA_RAW
         bool "Camera raw preview (no LVGL, stage S0/S1)"
+
+    config APP_MODE_NET
+        bool "Network baseline (ESP-Hosted SDIO NIC, stage S2)"
 
 endchoice
 
@@ -59,5 +65,27 @@ config APP_CAM_RST_GPIO
 endmenu
 
 endif # APP_MODE_CAMERA_RAW
+
+if APP_MODE_NET
+
+menu "Network baseline (ESP-Hosted)"
+
+config APP_WIFI_SSID
+    string "Wi-Fi SSID"
+    default "myssid"
+    help
+        SSID of the AP the C5 coprocessor should join. Real credentials
+        belong in the local sdkconfig only; never commit them to git.
+
+config APP_WIFI_PASSWORD
+    string "Wi-Fi password"
+    default "mypassword"
+    help
+        Password of the AP. Stored in the local sdkconfig only and never
+        printed to the console. Never commit real credentials to git.
+
+endmenu
+
+endif # APP_MODE_NET
 
 endmenu

@@ -24,7 +24,7 @@
 | 逻辑方向 | 270° 旋转，GUI Guider 画布 1280 × 800 |
 | 图形栈 | LVGL 9.4.0（本地组件 `lvgl__lvgl`）+ GUI Guider 2.0.1 + `esp_lvgl_adapter` 0.7.2 |
 | 触摸 | JD9366，I2C0，SCL=GPIO8 / SDA=GPIO7；`CTP_RST=GPIO6`、`CTP_INT=GPIO21` 硬件有接线但驱动未用 |
-| 存储 | 16 MB Flash / 32 MB HEX PSRAM @250 MHz；`factory` 分区仅 **768K**，`storage` FAT 15M |
+| 存储 | 16 MB Flash / 32 MB HEX PSRAM @250 MHz；`factory` **4M**（S2 由 768K 扩容），`storage` FAT **12032K** @0x440000 |
 | 版本约束 | `esp_lvgl_adapter 0.7.2` 声明 `idf >= 5.5.5`；`dependencies.lock` 固定托管组件版本 |
 
 ## 2. 文件边界（最重要）
@@ -35,12 +35,12 @@
 | `guider/guider.guiguider`、`guider/SCR.txt` | GUI Guider 工程 / 许可清单，由工具维护，改动需说明原因 |
 | `guider/licenses/`、`guider/platform/` | 工具链资源，`.gitignore` 已排除，不要纳入提交 |
 | `components/lvgl__lvgl/src/**` | LVGL 9.4.0 本地副本。**尽量不改**；确需改必须记录改动点，因为升级会被覆盖 |
-| `managed_components/**` | IDF 组件管理器产物，**禁止修改**；要换版本改 `idf_component.yml` / `dependencies.lock` |
+| `managed_components/**` | IDF 组件管理器产物，**禁止修改**；要换版本改 `idf_component.yml` / `dependencies.lock`。新下载的组件目录已由 `.gitignore` 排除，不入库 |
 | `components/*/CMakeLists.txt` | 可改。`SRCS / INCLUDE_DIRS / REQUIRES` 必须显式、最小依赖；不要靠隐式传递 |
 | `components/guider_ui/CMakeLists.txt` | 特例：用 `GLOB_RECURSE` 收集 `guider/generated` 与 `custom` 下 `.c`。新增源文件后必须 `idf.py reconfigure`（必要时 `fullclean`）让 CMake 重新扫描 |
 | `main/main.c` | 只做装配（初始化 → 加锁 → `setup_ui`）。不要把业务逻辑堆进 `app_main` |
 | `sdkconfig` | 用 `idf.py menuconfig` 修改，不要直接编辑；`sdkconfig.old` / `build/` 永不提交 |
-| `partitions.csv` | 改动必须同时核算 `factory` 容量与 `storage` 偏移（现为 0x100000，总 16 MB） |
+| `partitions.csv` | 改动必须同时核算 `factory` 容量与 `storage` 偏移（现 storage 为 0x440000，总 16 MB） |
 | `.workbuddy/**` | 项目数据，不是缓存，**不要删除** |
 | `README.md` / `AGENTS.md` / `doc/**` | 可维护，但事实必须与代码一致（见第 7 节） |
 
@@ -100,7 +100,7 @@ idf.py -p <PORT> flash monitor
 - **构建可能随机卡死**（`riscv32-esp-elf-gcc` CPU 归零、日志停滞十分钟以上），与代码无关，是高并发 I/O 问题。`idf.py build` 不接受 `-j` 参数；遇到时杀掉 `ninja`/`gcc` 后，在 `build/` 下改用 **`ninja -j 4`** 继续，几十秒即可通过。
 - 烧录可用 `idf.py -p COM7 flash`，但会先检测并可能触发重建；固件已是当前代码时，直接 `python -m esptool --chip esp32p4 -p COM7 -b 460800 --before default_reset --after hard_reset write_flash @flash_args`（在 `build/` 下）更快。
 - `sdkconfig` 中 `CONFIG_ESPTOOLPY_FLASHMODE_QIO=y` 与 `CONFIG_ESPTOOLPY_FLASHMODE="dio"` 不一致；涉及烧录 / Flash 配置时先用 `menuconfig` 核实，不要照抄任一项下结论。
-- 提交前最小检查：CMake `REQUIRES` 是否闭合、是否误改生成物、分区余量（`idf.py size`）、旋转 / 触摸是否仍匹配、文档事实是否同步。
+- 提交前最小检查：CMake `REQUIRES` 是否闭合、是否误改生成物、分区余量（`idf.py size`）、旋转 / 触摸是否仍匹配、文档事实是否同步；**`sdkconfig` 含本地 Wi-Fi 凭据，绝不提交**；真实凭据只允许存在于本地 `sdkconfig`，应用日志不得打印。
 - 不要提交 `build/`、`sdkconfig.old`、`*.bin/*.elf/*.map` 等构建产物。
 
 ## 7. 需求边界与文档同步
@@ -111,7 +111,7 @@ idf.py -p <PORT> flash monitor
   - 需求不清就提问，不要用"通常做法是……"代替本工程事实。
 - **2026-11-09 实测进度**：`APP_MODE_CAMERA_RAW` 的 **S0（不链接 LVGL 的纯屏彩条裸显）已编译 / 烧录 / 实测通过**，日志与数据见 `doc/摄像头裸显预览方案.md` 第 5.1 节。因此：
   - **不要再声称"本机没有 ESP-IDF 环境 / 未编译验证"**。本机 IDF 为 **v6.1**（`D:\Program\Espressif\v6.1\esp-idf`），串口 **COM7**；PowerShell 下 dot-source `C:\Espressif\tools\Microsoft.v6.1.PowerShell_profile.ps1` 激活。**Git Bash / MSys 不被 IDF 6.1 支持**（报 `MSys/Mingw is no longer supported`），编译烧录走 PowerShell / cmd。
-  - `main/Kconfig.projbuild` 的 `APP_MODE` 默认 GUI，但当前 `sdkconfig` 已切到 `CAMERA_RAW`；切回需把两行改回（或 `git checkout -- sdkconfig`）并**重新 `idf.py reconfigure`**。
+  - `main/Kconfig.projbuild` 的 `APP_MODE` 有 **GUI / CAMERA_RAW / NET** 三个选项，默认 GUI；当前 `sdkconfig` 已切到 **`APP_MODE_NET`**（含真实 Wi-Fi 凭据，**禁止提交 sdkconfig**）。切换模式必须**重新 `idf.py reconfigure`**；NET 模式的凭据模板见 `sdkconfig.defaults.net`。
   - 改模式后**必须 `idf.py reconfigure` 再 build**；`MINIMAL_BUILD ON` 的条件 `REQUIRES` 有两阶段扫描陷阱，**不要删掉 `main/CMakeLists.txt` 里回读 `sdkconfig` 的兜底**（详见该文档 2.3 节）。
   - **2026-11-10 起主工作区为 Ubuntu 虚拟机**（`~/esp/OSPTEK_ESP32P4C5_10.1_V3.2/`，fish + `. ~/.espressif/v6.1/esp-idf/export.fish`，串口 `/dev/ttyACM0`）；代码只改虚拟机，由用户提交 git，其它机器从 GitHub 拉取，Windows 侧不再同步代码。
   - S1 / S2 / 第四轮链路定位及**正常成像均已完成**（2026-11-10），摄像头裸显已跑通；此前暗场常量系镜头被桌面遮挡的物理原因，不是软件问题。描述状态时可以写「已跑通」，但屏幕构图 / 颜色应以用户目视为准。
@@ -131,7 +131,7 @@ idf.py -p <PORT> flash monitor
 | 改屏幕方向 | `components/lvgl_init/lvgl_init.c` + `components/touch_jd9366/touch_jd9366.c` + `guider/guider.guiguider` |
 | 调背光 / DSI 时序 | `components/lcd_jd9366/lcd_jd9366.c`、`esp_lcd_jd9366.h` |
 | 加新功能模块 | 新建 `components/<name>/`，再在 `main/CMakeLists.txt` 声明 `REQUIRES` |
-| 放图片 / 字体 / 大资源 | `storage`(FAT 15M) 或 `esp_lv_fs` / `esp_mmap_assets`，不要塞进 768K 的 `factory` |
+| 放图片 / 字体 / 大资源 | `storage`(FAT 12032K) 或 `esp_lv_fs` / `esp_mmap_assets`，不要硬塞进 `factory` |
 | 接摄像头 / 无线 | 先查第 5 节引脚约束与 `doc/工程介绍.md` 资料索引；**需求未明确前不要实现** |
 | 查硬件 | `D:\Embedded\MCU\ESP32\ESP32-P4\鱼鹰光电`，索引见 `README.md` 与 `doc/工程介绍.md` |
 

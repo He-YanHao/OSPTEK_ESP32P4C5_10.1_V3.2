@@ -5,6 +5,8 @@ nvs,        data,   nvs,      0x10000,   16K,
 # PHY初始化数据分区 (WiFi/BLE校准数据 固定4KB)
 phy_init,   data,   phy,      0x16000,   4K,
 # 用户应用分区
-factory,    app,    factory,  0x40000,   768K,
-# 文件系统分区
-storage,    data,   fat,      0x100000,  15M,
+# S2 起由 768K 扩到 4M：需容纳 LVGL / 摄像头 / esp_hosted / esp_wifi_remote /
+# lwIP 与后续 esp_h264 / esp_rtsp_service。GUI 基线此前已占 768K 的 98%。
+factory,    app,    factory,  0x40000,   4M,
+# 文件系统分区 (16MB Flash 剩余：0x1000000 - 0x440000 = 0xBC0000 = 12032K)
+storage,    data,   fat,      0x440000,  12032K,

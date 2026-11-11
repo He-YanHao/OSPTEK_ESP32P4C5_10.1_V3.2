@@ -10,6 +10,10 @@ build/
 sdkconfig.old
 sdkconfig.bak
 
+# ESP-IDF 组件管理器下载的依赖目录（版本由 dependencies.lock 锁定，不入库）
+# 已跟踪的 managed_components 文件仍照常跟踪；这里只排除新下载/生成的目录内容
+/managed_components/*/
+
 # C/C++ 编译产物
 *.o
 *.obj

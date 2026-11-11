@@ -1,0 +1,35 @@
+# S2 网络基线默认配置模板（不含真实凭据）
+#
+# 用法（虚拟机主工作区）：
+#   1) 复制本文件中的配置项，合并进本地 sdkconfig；或
+#      SDKCONFIG_DEFAULTS=sdkconfig.defaults.net idf.py reconfigure
+#   2) 把 CONFIG_APP_WIFI_SSID / CONFIG_APP_WIFI_PASSWORD 改成本地真实值
+#   3) idf.py reconfigure && idf.py build && idf.py -p /dev/ttyACM0 flash
+#
+# 真实 SSID / 密码只允许存在于本地 sdkconfig。
+# sdkconfig 含凭据，禁止提交到 git / 写进文档 / 笔记。
+
+CONFIG_APP_MODE_NET=y
+# CONFIG_APP_MODE_GUI is not set
+# CONFIG_APP_MODE_CAMERA_RAW is not set
+
+# ESP-Hosted host stack (P4) / C5 coprocessor
+CONFIG_ESP_HOSTED=y
+CONFIG_ESP_HOSTED_HOST_FEAT_RPC=y
+CONFIG_ESP_HOSTED_HOST_FEAT_RPC_EXT_V2=y
+CONFIG_ESP_HOSTED_HOST_FEAT_SYSTEM=y
+CONFIG_ESP_HOSTED_HOST_FEAT_WIFI=y
+
+# 官方对 P4 host 默认选 C6；本板是 C5，必须显式改这两项
+CONFIG_SLAVE_IDF_TARGET_ESP32C5=y
+CONFIG_ESP_HOSTED_IDF_SLAVE_TARGET="esp32c5"
+CONFIG_ESP_HOSTED_HOST_RESET_GPIO=54
+
+# SDIO GPIO 用组件默认值，正是本板：CMD19 CLK18 D0~D3=14/15/16/17，4-bit 40 MHz
+# 模式：CP SW_AGGR + host RX_STREAMING，RPC V2
+
+CONFIG_FREERTOS_HZ=1000
+
+# Wi-Fi 凭据（占位，请填本地真实值，不要提交）
+CONFIG_APP_WIFI_SSID="myssid"
+CONFIG_APP_WIFI_PASSWORD="mypassword"

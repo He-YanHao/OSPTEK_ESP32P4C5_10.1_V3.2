@@ -2,7 +2,7 @@
 
 > 基于 **ESP32-P4**（+ ESP32-C5 无线协处理器）的 10.1 英寸 MIPI-DSI 显示 / 触摸 / LVGL 工程基线。
 >
-> **当前状态**：显示、触摸、LVGL 与 GUI Guider UI 骨架已跑通；`APP_MODE` 可切换 GUI 基线与 `CAMERA_RAW` 裸显。**2026-11-10 摄像头本地直显已完整跑通**：MIPI-CSI → ISP → DMA → DPI 全链路经测试图案（彩色条纹 → 灰色渐变）与用户目视验证，镜头朝向实物后正常成像 `uniq8=124~135`、`30 fps`、`csi_err=0`（此前暗场常量系摄像头反扣桌面、镜头被遮挡的物理原因，见 `doc/摄像头裸显预览方案.md` 第 8.5 节）。**虚拟机 `~/esp/OSPTEK_ESP32P4C5_10.1_V3.2/` 是唯一主工作区**，Windows 侧不再同步代码。`components/esp32at_sdio` 为空占位组件，音频 / TF / USB / 无线等硬件能力尚未在软件中接入。**2026-11-11 起下一步方向**：局域网 RTSP 推流，先把 C5 从 AT SDIO 固件换成 ESP-Hosted 网卡方案；评估与分步落地计划见 `doc/局域网RTSP与C5网卡化方案.md`（S1 C5 网卡化已于 2026-11-11 完整验收通过，见第 11 节），Matter-WebRTC 暂缓。**2026-11-11 晚 S1 完成**：C5 已重刷 ESP-Hosted 3.1.0 `cp/` 固件（AT SDIO 固件弃用），P4 经 4-bit SDIO 拿到 `10.206.119.248`，同网段 Windows 主机 ping 通、0% 丢包。
+> **当前状态**：显示、触摸、LVGL 与 GUI Guider UI 骨架已跑通；`APP_MODE` 可切换 GUI 基线与 `CAMERA_RAW` 裸显。**2026-11-10 摄像头本地直显已完整跑通**：MIPI-CSI → ISP → DMA → DPI 全链路经测试图案（彩色条纹 → 灰色渐变）与用户目视验证，镜头朝向实物后正常成像 `uniq8=124~135`、`30 fps`、`csi_err=0`（此前暗场常量系摄像头反扣桌面、镜头被遮挡的物理原因，见 `doc/摄像头裸显预览方案.md` 第 8.5 节）。**虚拟机 `~/esp/OSPTEK_ESP32P4C5_10.1_V3.2/` 是唯一主工作区**，Windows 侧不再同步代码。`components/esp32at_sdio` 为空占位组件，音频 / TF / USB / 无线等硬件能力尚未在软件中接入。**2026-11-11 起下一步方向**：局域网 RTSP 推流，先把 C5 从 AT SDIO 固件换成 ESP-Hosted 网卡方案；评估与分步落地计划见 `doc/局域网RTSP与C5网卡化方案.md`（S1 C5 网卡化已于 2026-11-11 完整验收通过，见第 11 节），Matter-WebRTC 暂缓。**2026-11-11 晚 S1 完成**：C5 已重刷 ESP-Hosted 3.1.0 `cp/` 固件（AT SDIO 固件弃用），P4 经 4-bit SDIO 拿到 `10.206.119.248`，同网段 Windows 主机 ping 通、0% 丢包。**2026-11-11 晚 S2 完成**：本工程新增 `APP_MODE_NET` 并接入 `esp_hosted`，`factory` 由 768K 扩到 4M，主工程内 `got ip:10.206.119.248`、Windows ping 3/3 通；详见 `doc/局域网RTSP与C5网卡化方案.md` 第 12 节。
 
 ## 一眼看懂
 
@@ -16,7 +16,7 @@
 | 图形栈 | LVGL **9.4.0**（本地组件）+ NXP GUI Guider **2.0.1** + `espressif/esp_lvgl_adapter` **0.7.2** |
 | 显示方向 | 270° 旋转（横屏），GUI Guider 画布 **1280 × 800** |
 | 存储 | 16 MB NOR Flash（80 MHz）+ 32 MB HEX PSRAM（250 MHz） |
-| 分区 | nvs 16K / phy_init 4K / factory **768K** / storage(FAT) **15M** |
+| 分区 | nvs 16K / phy_init 4K / factory **4M** / storage(FAT) **12032K** @0x440000（2026-11-11 S2 扩容） |
 | 框架 | ESP-IDF **v6.1**（本机 `D:\Program\Espressif\v6.1\esp-idf`），`CONFIG_IDF_TARGET="esp32p4"`；`esp_lvgl_adapter 0.7.2` 声明 `idf >= 5.5.5` |
 | 工程名 | `p4`（见根 `CMakeLists.txt`） |
 | 当前 UI | GUI Guider 生成的键盘演示页（两个 `lv_keyboard`），用于验证显示 / 触摸链路，非最终产品界面 |
@@ -37,7 +37,7 @@ idf.py -p <PORT> flash monitor # 例：-p COM7；115200 波特率
 idf.py menuconfig              # 改配置请走 menuconfig，不要直接手改 sdkconfig
 idf.py -p <PORT> monitor       # 仅看日志（也可走 USB-Serial-JTAG）
 idf.py fullclean               # 依赖 / 组件变更后全量重编
-idf.py size-components         # 关注 factory 分区余量（仅 768K）
+idf.py size-components         # 关注 factory 分区余量（现为 4M）
 ```
 
 ### 切换运行模式
@@ -47,7 +47,8 @@ idf.py size-components         # 关注 factory 分区余量（仅 768K）
 | 模式 | 说明 | `main` 的 `REQUIRES` |
 | --- | --- | --- |
 | `APP_MODE_GUI`（默认） | LVGL + GUI Guider 基线 | `spi_flash esp_psram lvgl_init guider_ui` |
-| `APP_MODE_CAMERA_RAW` | 不链接 GUI 链的裸显模式：`lcd_jd9366` + `camera_preview`，开机 3 秒 DSI 彩条自检后进入摄像头直显 | `spi_flash esp_psram esp_mm esp_lcd esp_driver_i2c esp_driver_gpio lcd_jd9366 camera_preview` |
+| `APP_MODE_CAMERA_RAW` | 不链接 GUI 链的裸显模式：`lcd_jd9366` + `camera_preview`，开机直接进入摄像头直显（DSI 彩条自检已移除） | `spi_flash esp_psram esp_mm esp_lcd esp_driver_i2c esp_driver_gpio lcd_jd9366 camera_preview` |
+| `APP_MODE_NET` | **S2 网络基线**：C5 作 SDIO 网卡，标准 `lwIP / esp_netif / socket`，不链接 LVGL / 摄像头 | `spi_flash esp_psram esp_hosted esp_wifi esp_event esp_netif nvs_flash esp_driver_gpio` |
 
 ```bash
 idf.py menuconfig             # Application Mode → Camera raw preview
@@ -114,7 +115,7 @@ LVGL 不是线程安全的：任何非 LVGL 任务内操作 UI，都必须用 `e
 | 面板物理分辨率 | 800 × 1280，RGB565，DPI 78 MHz / 60 Hz | `lcd_jd9366.h` / `esp_lcd_jd9366.h`，**不支持指令硬件转屏**，旋转靠适配层硬件（PPA / DMA2D） |
 | DSI | 2-lane @1500 Mbps，LDO 通道 3 = 2.5 V | `lcd_jd9366.c` |
 | 引脚 | LCD_RST=GPIO27，TP_SCL=GPIO8，TP_SDA=GPIO7，背光使能=GPIO20，CSI_RST=GPIO26 | `lcd_jd9366.c` 的 `LCD_BL_GPIO` 已按底板 V1.3 修正为 **GPIO20**（SY7200 EN）；GPIO26 是摄像头复位，勿复用 |
-| 应用分区 | `factory` 仅 768K | 字体、图片、资源不要硬塞进 app，考虑 `storage`(FAT 15M) / mmap assets |
+| 应用分区 | `factory` 4M（S2 由 768K 扩容） | 大字体、图片、资源仍优先放 `storage`(FAT 12032K) / mmap assets |
 | Strapping | GPIO34~38（P4 启动模式 / 下载） | 复用这些脚做外设前先查核心板手册 3.3 节 |
 | 电源 | `RTC_VBAT`（Pin84）不可悬空；CSI 复位上拉 1.8 V、IO 建议开漏 | 见底板 V1.3 与核心板手册 |
 
@@ -126,14 +127,14 @@ LVGL 不是线程安全的：任何非 LVGL 任务内操作 UI，都必须用 `e
 | JD9366 电容触摸（含旋转坐标） | 已实现并跑通 |
 | LVGL 9.4.0 + esp_lvgl_adapter（270° / 防撕裂） | 已实现并跑通 |
 | GUI Guider UI 骨架（键盘演示页） | 已生成，仅作链路验证 |
-| 自定义分区表（含 15M FAT） | 已配置 |
+| 自定义分区表（4M app + 12032K FAT） | 已配置 |
 | 裸显模式 `CAMERA_RAW` / S0 纯屏彩条（不链接 LVGL） | **2026-11-09 已实测通过**：236K 镜像、COM7 烧录、双缓冲彩条滚动 |
 | S1 SCCB 探测（`cam_sccb_probe`） | **已实测通过**：GPIO7/8 扫到 `0x30 PID=0xcb3a`，复位自证 PASS |
 | S2 摄像头直显（`camera_preview`） | **已实测**：800x800@30fps，CSI+ISP 零拷贝写入 DPI 帧缓冲，画面居中、上下各 240 行黑边 |
 | S3 / 链路打通 + 正常成像（2026-11-10，Ubuntu 虚拟机） | **已实测通过**：测试图案彩条 → 灰度渐变验证全链路；镜头朝向白色小风扇后 `frames=30/s`、`commits` 1:1、`uniq8=124~135`、`csi_err=0`，真实图像数据有效。见 `doc/摄像头裸显预览方案.md` 第 8 节 |
 | `components/esp32at_sdio` | **空占位**，历史上曾有 AT / SPI 桥接实现，现已删除，当前不参与构建 |
 | 音频（ES8311 / NS4150 / 硅麦）、TF 卡、USB | 硬件已具备，软件未接入 |
-| C5 无线（ESP-Hosted SDIO 网卡） | **S1 已跑通**（独立验证工程，`got ip` + ping）；本工程集成待 S2 |
+| C5 无线（ESP-Hosted SDIO 网卡） | **S2 已跑通**：本工程 `APP_MODE_NET`，`got ip:10.206.119.248` + ping 3/3 通 |
 | 后续业务功能 | 需求待补充 |
 
 ## 硬件资料（本机路径）
@@ -161,7 +162,7 @@ LVGL 不是线程安全的：任何非 LVGL 任务内操作 UI，都必须用 `e
 - `doc/工程介绍.md`：完整工程介绍（架构、引脚、启动流程、扩展指南、已知坑）
 - `doc/Matter-WebRTC摄像头方案适配评估.md`：Matter 1.5 / WebRTC / H.264 摄像头方案针对本工程的适配评估（**评估稿，非已确定需求**；当前仅作为工程文档）
 - `doc/摄像头裸显预览方案.md`：第一阶段验证目标 —— 不链接 LVGL、不碰协议的摄像头本地直显（**S0~S2 实测记录 + 第 8 节链路打通 + 第 9 节开机稳定性与 ISP 色彩链**；本地直显已跑通，色块与闪烁已解决，偏绿发暗按用户要求暂不优化）
-- `doc/局域网RTSP与C5网卡化方案.md`：**当前下一步方向** —— 局域网 RTSP 与 C5 网卡化（ESP-Hosted）评估稿，含板级 SDIO 引脚原图核实、组件版本与 S1~S5 落地计划（S1 已完整验收通过，见第 11 节；S2 起待实施）
+- `doc/局域网RTSP与C5网卡化方案.md`：**当前下一步方向** —— 局域网 RTSP 与 C5 网卡化（ESP-Hosted）评估稿，含板级 SDIO 引脚原图核实、组件版本与 S1~S5 落地计划（S1 / S2 已验收通过，见第 11 / 12 节；S3 起待实施）
 - `guider/SCR.txt`：GUI Guider 生成内容的第三方许可清单
 - 个人笔记库（工程外）：`D:\Documents\Notes\嵌入式\01_平台层（硬件）\ESP32\P4` —— `鱼鹰P4C5-AT.md`（AT 通道引脚速查）、`ESP32-P4-通用代码骨架.md`（平台通用代码）。分流规则见 `AGENTS.md` 第 9 节。
 
