@@ -15,3 +15,7 @@ dependencies:
     version: '^3.1.0'
   espressif/esp_wifi_remote:
     version: '>=1.3.1'
+  ## S3: ESP32-P4 硬件 H.264 编码器（Baseline，输入 O_UYY_E_VYY / YUV420）
+  ## ISP 原生支持 ISP_COLOR_YUV420（同一 FOURCC），无需 esp_video / V4L2 重写采集链。
+  espressif/esp_h264:
+    version: '^1.5.0'

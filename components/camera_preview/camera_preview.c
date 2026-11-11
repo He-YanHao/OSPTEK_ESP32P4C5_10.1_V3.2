@@ -93,6 +93,10 @@ static volatile uint32_t s_csi_err_flags;
 static volatile uint32_t s_csi_err_cnt;
 static void *s_last_fb;
 
+/* S3：可选的每帧消费者（默认 NULL，基线行为不变） */
+static camera_preview_frame_cb_t s_frame_cb;
+static void *s_frame_cb_arg;
+
 /* 传感器格式自带的 "MIPI RX init cfg"，CSI PHY 必须按它配置 */
 static uint32_t s_sensor_mipi_clk_hz;
 static uint32_t s_sensor_lane_num;
@@ -155,6 +159,14 @@ static bool IRAM_ATTR cam_on_error(esp_cam_ctlr_handle_t handle, const esp_cam_c
     return false;
 }
 
+/* ---------------- 对外帧回调 ---------------- */
+
+void camera_preview_set_frame_cb(camera_preview_frame_cb_t cb, void *user_ctx)
+{
+    s_frame_cb = cb;
+    s_frame_cb_arg = user_ctx;
+}
+
 /* ---------------- 后台接收任务 ---------------- */
 
 static void cam_rx_task(void *arg)
@@ -190,6 +202,12 @@ static void cam_rx_task(void *arg)
                 } else {
                     ESP_LOGE(TAG, "draw_bitmap failed: %s", esp_err_to_name(err));
                 }
+            }
+
+            /* S3：把刚写完的 RGB565 帧交给外部消费者（如 H.264 编码器）。
+             * 同步执行，消费方必须在本函数返回前用完这块 buffer。 */
+            if (s_frame_cb) {
+                s_frame_cb((const uint8_t *)fb, s_frame_bytes, s_frame_cb_arg);
             }
         }
 

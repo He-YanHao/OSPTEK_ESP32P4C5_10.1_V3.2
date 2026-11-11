@@ -2,7 +2,7 @@
 
 > 基于 **ESP32-P4**（+ ESP32-C5 无线协处理器）的 10.1 英寸 MIPI-DSI 显示 / 触摸 / LVGL 工程基线。
 >
-> **当前状态**：显示、触摸、LVGL 与 GUI Guider UI 骨架已跑通；`APP_MODE` 可切换 GUI 基线与 `CAMERA_RAW` 裸显。**2026-11-10 摄像头本地直显已完整跑通**：MIPI-CSI → ISP → DMA → DPI 全链路经测试图案（彩色条纹 → 灰色渐变）与用户目视验证，镜头朝向实物后正常成像 `uniq8=124~135`、`30 fps`、`csi_err=0`（此前暗场常量系摄像头反扣桌面、镜头被遮挡的物理原因，见 `doc/摄像头裸显预览方案.md` 第 8.5 节）。**虚拟机 `~/esp/OSPTEK_ESP32P4C5_10.1_V3.2/` 是唯一主工作区**，Windows 侧不再同步代码。`components/esp32at_sdio` 为空占位组件，音频 / TF / USB / 无线等硬件能力尚未在软件中接入。**2026-11-11 起下一步方向**：局域网 RTSP 推流，先把 C5 从 AT SDIO 固件换成 ESP-Hosted 网卡方案；评估与分步落地计划见 `doc/局域网RTSP与C5网卡化方案.md`（S1 C5 网卡化已于 2026-11-11 完整验收通过，见第 11 节），Matter-WebRTC 暂缓。**2026-11-11 晚 S1 完成**：C5 已重刷 ESP-Hosted 3.1.0 `cp/` 固件（AT SDIO 固件弃用），P4 经 4-bit SDIO 拿到 `10.206.119.248`，同网段 Windows 主机 ping 通、0% 丢包。**2026-11-11 晚 S2 完成**：本工程新增 `APP_MODE_NET` 并接入 `esp_hosted`，`factory` 由 768K 扩到 4M，主工程内 `got ip:10.206.119.248`、Windows ping 3/3 通；详见 `doc/局域网RTSP与C5网卡化方案.md` 第 12 节。
+> **当前状态**：显示、触摸、LVGL 与 GUI Guider UI 骨架已跑通；`APP_MODE` 可切换 GUI 基线与 `CAMERA_RAW` 裸显。**2026-11-10 摄像头本地直显已完整跑通**：MIPI-CSI → ISP → DMA → DPI 全链路经测试图案（彩色条纹 → 灰色渐变）与用户目视验证，镜头朝向实物后正常成像 `uniq8=124~135`、`30 fps`、`csi_err=0`（此前暗场常量系摄像头反扣桌面、镜头被遮挡的物理原因，见 `doc/摄像头裸显预览方案.md` 第 8.5 节）。**虚拟机 `~/esp/OSPTEK_ESP32P4C5_10.1_V3.2/` 是唯一主工作区**，Windows 侧不再同步代码。`components/esp32at_sdio` 为空占位组件，音频 / TF / USB / 无线等硬件能力尚未在软件中接入。**2026-11-11 起下一步方向**：局域网 RTSP 推流，先把 C5 从 AT SDIO 固件换成 ESP-Hosted 网卡方案；评估与分步落地计划见 `doc/局域网RTSP与C5网卡化方案.md`（S1 C5 网卡化已于 2026-11-11 完整验收通过，见第 11 节），Matter-WebRTC 暂缓。**2026-11-11 晚 S1 完成**：C5 已重刷 ESP-Hosted 3.1.0 `cp/` 固件（AT SDIO 固件弃用），P4 经 4-bit SDIO 拿到 `10.206.119.248`，同网段 Windows 主机 ping 通、0% 丢包。**2026-11-11 晚 S2 完成**：本工程新增 `APP_MODE_NET` 并接入 `esp_hosted`，`factory` 由 768K 扩到 4M，主工程内 `got ip:10.206.119.248`、Windows ping 3/3 通。**S3 完成**：新增 `APP_MODE_H264`，P4 硬件编码 RGB565 帧，产出经 ffprobe / ffmpeg 验证合法的 Annex-B H.264 NAL（800x800 Constrained Baseline、30 fps、`err=0`）；详见 `doc/局域网RTSP与C5网卡化方案.md` 第 12 / 13 节。
 
 ## 一眼看懂
 
@@ -49,6 +49,7 @@ idf.py size-components         # 关注 factory 分区余量（现为 4M）
 | `APP_MODE_GUI`（默认） | LVGL + GUI Guider 基线 | `spi_flash esp_psram lvgl_init guider_ui` |
 | `APP_MODE_CAMERA_RAW` | 不链接 GUI 链的裸显模式：`lcd_jd9366` + `camera_preview`，开机直接进入摄像头直显（DSI 彩条自检已移除） | `spi_flash esp_psram esp_mm esp_lcd esp_driver_i2c esp_driver_gpio lcd_jd9366 camera_preview` |
 | `APP_MODE_NET` | **S2 网络基线**：C5 作 SDIO 网卡，标准 `lwIP / esp_netif / socket`，不链接 LVGL / 摄像头 | `spi_flash esp_psram esp_hosted esp_wifi esp_event esp_netif nvs_flash esp_driver_gpio` |
+| `APP_MODE_H264` | **S3 编码**：网络 + 摄像头预览 + P4 硬件 H.264，NAL 经 TCP:9999 / 串口导出 | 上述网络链 + `camera_preview lcd_jd9366 esp_mm esp_lcd` + `espressif__esp_h264` |
 
 ```bash
 idf.py menuconfig             # Application Mode → Camera raw preview
@@ -134,7 +135,8 @@ LVGL 不是线程安全的：任何非 LVGL 任务内操作 UI，都必须用 `e
 | S3 / 链路打通 + 正常成像（2026-11-10，Ubuntu 虚拟机） | **已实测通过**：测试图案彩条 → 灰度渐变验证全链路；镜头朝向白色小风扇后 `frames=30/s`、`commits` 1:1、`uniq8=124~135`、`csi_err=0`，真实图像数据有效。见 `doc/摄像头裸显预览方案.md` 第 8 节 |
 | `components/esp32at_sdio` | **空占位**，历史上曾有 AT / SPI 桥接实现，现已删除，当前不参与构建 |
 | 音频（ES8311 / NS4150 / 硅麦）、TF 卡、USB | 硬件已具备，软件未接入 |
-| C5 无线（ESP-Hosted SDIO 网卡） | **S2 已跑通**：本工程 `APP_MODE_NET`，`got ip:10.206.119.248` + ping 3/3 通 |
+| C5 无线（ESP-Hosted SDIO 网卡） | **S2 已跑通**：本工程 `APP_MODE_NET`，`got ip:10.206.119.248` + ping 3/3 通（S3 阶段热点侧认证待恢复） |
+| P4 硬件 H.264 编码（`esp_h264` 1.5.0） | **S3 已跑通**：`APP_MODE_H264`，800x800 RGB565→NAL，ffprobe / ffmpeg 解析通过，30 fps 零错误 |
 | 后续业务功能 | 需求待补充 |
 
 ## 硬件资料（本机路径）
@@ -162,7 +164,7 @@ LVGL 不是线程安全的：任何非 LVGL 任务内操作 UI，都必须用 `e
 - `doc/工程介绍.md`：完整工程介绍（架构、引脚、启动流程、扩展指南、已知坑）
 - `doc/Matter-WebRTC摄像头方案适配评估.md`：Matter 1.5 / WebRTC / H.264 摄像头方案针对本工程的适配评估（**评估稿，非已确定需求**；当前仅作为工程文档）
 - `doc/摄像头裸显预览方案.md`：第一阶段验证目标 —— 不链接 LVGL、不碰协议的摄像头本地直显（**S0~S2 实测记录 + 第 8 节链路打通 + 第 9 节开机稳定性与 ISP 色彩链**；本地直显已跑通，色块与闪烁已解决，偏绿发暗按用户要求暂不优化）
-- `doc/局域网RTSP与C5网卡化方案.md`：**当前下一步方向** —— 局域网 RTSP 与 C5 网卡化（ESP-Hosted）评估稿，含板级 SDIO 引脚原图核实、组件版本与 S1~S5 落地计划（S1 / S2 已验收通过，见第 11 / 12 节；S3 起待实施）
+- `doc/局域网RTSP与C5网卡化方案.md`：**当前下一步方向** —— 局域网 RTSP 与 C5 网卡化（ESP-Hosted）评估稿，含板级 SDIO 引脚原图核实、组件版本与 S1~S5 落地计划（S1 / S2 / S3 已验收通过，见第 11 / 12 / 13 节；S4 RTSP Server 待实施）
 - `guider/SCR.txt`：GUI Guider 生成内容的第三方许可清单
 - 个人笔记库（工程外）：`D:\Documents\Notes\嵌入式\01_平台层（硬件）\ESP32\P4` —— `鱼鹰P4C5-AT.md`（AT 通道引脚速查）、`ESP32-P4-通用代码骨架.md`（平台通用代码）。分流规则见 `AGENTS.md` 第 9 节。
 

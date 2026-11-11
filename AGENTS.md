@@ -100,7 +100,7 @@ idf.py -p <PORT> flash monitor
 - **构建可能随机卡死**（`riscv32-esp-elf-gcc` CPU 归零、日志停滞十分钟以上），与代码无关，是高并发 I/O 问题。`idf.py build` 不接受 `-j` 参数；遇到时杀掉 `ninja`/`gcc` 后，在 `build/` 下改用 **`ninja -j 4`** 继续，几十秒即可通过。
 - 烧录可用 `idf.py -p COM7 flash`，但会先检测并可能触发重建；固件已是当前代码时，直接 `python -m esptool --chip esp32p4 -p COM7 -b 460800 --before default_reset --after hard_reset write_flash @flash_args`（在 `build/` 下）更快。
 - `sdkconfig` 中 `CONFIG_ESPTOOLPY_FLASHMODE_QIO=y` 与 `CONFIG_ESPTOOLPY_FLASHMODE="dio"` 不一致；涉及烧录 / Flash 配置时先用 `menuconfig` 核实，不要照抄任一项下结论。
-- 提交前最小检查：CMake `REQUIRES` 是否闭合、是否误改生成物、分区余量（`idf.py size`）、旋转 / 触摸是否仍匹配、文档事实是否同步；**`sdkconfig` 含本地 Wi-Fi 凭据，绝不提交**；真实凭据只允许存在于本地 `sdkconfig`，应用日志不得打印。
+- 提交前最小检查：CMake `REQUIRES` 是否闭合、是否误改生成物、分区余量（`idf.py size`）、旋转 / 触摸是否仍匹配、文档事实是否同步；**`sdkconfig` 含真实 Wi-Fi 凭据，已按用户授权纳入本私密仓库**（手机热点、外部无法物理接入）；若仓库转为公开或更换热点，须先清理 git 历史。应用日志不得打印凭据。
 - 不要提交 `build/`、`sdkconfig.old`、`*.bin/*.elf/*.map` 等构建产物。
 
 ## 7. 需求边界与文档同步
@@ -111,7 +111,7 @@ idf.py -p <PORT> flash monitor
   - 需求不清就提问，不要用"通常做法是……"代替本工程事实。
 - **2026-11-09 实测进度**：`APP_MODE_CAMERA_RAW` 的 **S0（不链接 LVGL 的纯屏彩条裸显）已编译 / 烧录 / 实测通过**，日志与数据见 `doc/摄像头裸显预览方案.md` 第 5.1 节。因此：
   - **不要再声称"本机没有 ESP-IDF 环境 / 未编译验证"**。本机 IDF 为 **v6.1**（`D:\Program\Espressif\v6.1\esp-idf`），串口 **COM7**；PowerShell 下 dot-source `C:\Espressif\tools\Microsoft.v6.1.PowerShell_profile.ps1` 激活。**Git Bash / MSys 不被 IDF 6.1 支持**（报 `MSys/Mingw is no longer supported`），编译烧录走 PowerShell / cmd。
-  - `main/Kconfig.projbuild` 的 `APP_MODE` 有 **GUI / CAMERA_RAW / NET** 三个选项，默认 GUI；当前 `sdkconfig` 已切到 **`APP_MODE_NET`**（含真实 Wi-Fi 凭据，**禁止提交 sdkconfig**）。切换模式必须**重新 `idf.py reconfigure`**；NET 模式的凭据模板见 `sdkconfig.defaults.net`。
+  - `main/Kconfig.projbuild` 的 `APP_MODE` 有 **GUI / CAMERA_RAW / NET / H264** 四个选项，默认 GUI；当前 `sdkconfig` 已切到 **`APP_MODE_H264`**（含真实 Wi-Fi 凭据，已按用户授权提交）。切换模式必须**重新 `idf.py reconfigure`**；配置模板见 `sdkconfig.defaults.net`。
   - 改模式后**必须 `idf.py reconfigure` 再 build**；`MINIMAL_BUILD ON` 的条件 `REQUIRES` 有两阶段扫描陷阱，**不要删掉 `main/CMakeLists.txt` 里回读 `sdkconfig` 的兜底**（详见该文档 2.3 节）。
   - **2026-11-10 起主工作区为 Ubuntu 虚拟机**（`~/esp/OSPTEK_ESP32P4C5_10.1_V3.2/`，fish + `. ~/.espressif/v6.1/esp-idf/export.fish`，串口 `/dev/ttyACM0`）；代码只改虚拟机，由用户提交 git，其它机器从 GitHub 拉取，Windows 侧不再同步代码。
   - S1 / S2 / 第四轮链路定位及**正常成像均已完成**（2026-11-10），摄像头裸显已跑通；此前暗场常量系镜头被桌面遮挡的物理原因，不是软件问题。描述状态时可以写「已跑通」，但屏幕构图 / 颜色应以用户目视为准。

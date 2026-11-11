@@ -6,19 +6,30 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#if defined(CONFIG_APP_MODE_CAMERA_RAW)
-#include "lcd_jd9366.h"
-#include "esp_lcd_mipi_dsi.h"
-#include "esp_lcd_panel_ops.h"
-#include "camera_preview.h"
-#elif defined(CONFIG_APP_MODE_NET)
+#if defined(CONFIG_APP_MODE_NET) || defined(CONFIG_APP_MODE_H264)
 #include "nvs_flash.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_netif_ip_addr.h"
 #include "lwip/ip_addr.h"
-#else
+#endif
+
+#if defined(CONFIG_APP_MODE_CAMERA_RAW) || defined(CONFIG_APP_MODE_H264)
+#include "camera_preview.h"
+#endif
+
+#if defined(CONFIG_APP_MODE_CAMERA_RAW) || defined(CONFIG_APP_MODE_H264)
+#include "lcd_jd9366.h"
+#include "esp_lcd_mipi_dsi.h"
+#include "esp_lcd_panel_ops.h"
+#endif
+
+#if defined(CONFIG_APP_MODE_H264)
+#include "h264_sink.h"
+#endif
+
+#if !defined(CONFIG_APP_MODE_CAMERA_RAW) && !defined(CONFIG_APP_MODE_NET) && !defined(CONFIG_APP_MODE_H264)
 #include "lvgl_init.h"
 #include "lvgl.h"
 #include "gui_guider.h"
@@ -27,7 +38,7 @@
 
 static const char *TAG = "main";
 
-#if !defined(CONFIG_APP_MODE_CAMERA_RAW) && !defined(CONFIG_APP_MODE_NET)
+#if !defined(CONFIG_APP_MODE_CAMERA_RAW) && !defined(CONFIG_APP_MODE_NET) && !defined(CONFIG_APP_MODE_H264)
 gg_ui_t guider_ui;
 #endif
 
@@ -68,15 +79,15 @@ static void app_main_raw(void)
 
 #endif /* CONFIG_APP_MODE_CAMERA_RAW */
 
-#if defined(CONFIG_APP_MODE_NET)
+#if defined(CONFIG_APP_MODE_NET) || defined(CONFIG_APP_MODE_H264)
 
 /*
  * S2 网络基线：ESP-Hosted 在 app_main 之前自动完成 SDIO 握手 / RPC 协商 /
  * Wi-Fi remote 初始化（CONFIG_ESP_HOSTED_AUTO_CALL_INIT_BEFORE_APP_MAIN）。
  * 这里只跑标准 esp_netif + Wi-Fi STA；拿到 IP 即证明 C5 网卡化在本工程内可用。
  */
-static void net_wifi_event_handler(void *arg, esp_event_base_t base,
-                                   int32_t id, void *data)
+static void app_net_wifi_event_handler(void *arg, esp_event_base_t base,
+                                       int32_t id, void *data)
 {
     (void)arg;
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
@@ -93,7 +104,7 @@ static void net_wifi_event_handler(void *arg, esp_event_base_t base,
     }
 }
 
-static void app_main_net(void)
+static void app_net_init(void)
 {
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -112,14 +123,18 @@ static void app_main_net(void)
     esp_event_handler_instance_t any_id;
     esp_event_handler_instance_t got_ip;
     ESP_ERROR_CHECK(esp_event_handler_instance_register(
-        WIFI_EVENT, ESP_EVENT_ANY_ID, &net_wifi_event_handler, NULL, &any_id));
+        WIFI_EVENT, ESP_EVENT_ANY_ID, &app_net_wifi_event_handler, NULL, &any_id));
     ESP_ERROR_CHECK(esp_event_handler_instance_register(
-        IP_EVENT, IP_EVENT_STA_GOT_IP, &net_wifi_event_handler, NULL, &got_ip));
+        IP_EVENT, IP_EVENT_STA_GOT_IP, &app_net_wifi_event_handler, NULL, &got_ip));
 
     wifi_config_t wc = {0};
     snprintf((char *)wc.sta.ssid, sizeof(wc.sta.ssid), "%s", CONFIG_APP_WIFI_SSID);
     snprintf((char *)wc.sta.password, sizeof(wc.sta.password), "%s", CONFIG_APP_WIFI_PASSWORD);
-    wc.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+    /* 手机热点 OnePlus 实测是 WPA3-SAE（RSN AKM 00-0f-ac:8）。
+     * 只写 WPA2_PSK threshold 且不设 SAE PWE 时 C5 会反复 AUTH_EXPIRE
+     * (reason=2)。按官方 station 示例配成 WPA2/WPA3 兼容 + PWE BOTH。 */
+    wc.sta.threshold.authmode = WIFI_AUTH_WPA2_WPA3_PSK;
+    wc.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wc));
@@ -127,21 +142,57 @@ static void app_main_net(void)
 
     /* 绝不在这里打印 SSID / 密码（官方示例会明文打印，已刻意去掉） */
     ESP_LOGI(TAG, "wifi station started (credentials not logged)");
+}
+
+#endif /* NET || H264 */
+
+#if defined(CONFIG_APP_MODE_H264)
+
+/* S3：网络 + 摄像头 + P4 硬件 H.264 编码。
+ * 顺序不能反：h264_sink_start() 要先注册帧回调，再启动采集。 */
+static void app_main_h264(void)
+{
+    app_net_init();
+
+    /* camera_preview 由 DMA 直写 DPI 帧缓冲，必须先初始化面板。 */
+    ESP_ERROR_CHECK(lcd_jd9366_init(2));
+
+    if (h264_sink_start() != ESP_OK) {
+        ESP_LOGE(TAG, "h264_sink_start failed");
+        return;
+    }
+
+    esp_err_t err = camera_preview_start(NULL);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "camera_preview_start failed: %s", esp_err_to_name(err));
+        return;
+    }
+    ESP_LOGI(TAG, "H264 NAL dump mode started (TCP:9999)");
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(5000));
-        ESP_LOGI(TAG, "net heartbeat");
+        uint32_t frames = 0, bytes = 0, idr = 0, errors = 0;
+        h264_sink_get_stats(&frames, &bytes, &idr, &errors);
+        ESP_LOGI(TAG, "h264 frames=%u bytes=%u idr=%u err=%u cam=%u",
+                 (unsigned)frames, (unsigned)bytes, (unsigned)idr,
+                 (unsigned)errors, (unsigned)camera_preview_get_frame_count());
     }
 }
 
-#endif /* CONFIG_APP_MODE_NET */
+#endif /* CONFIG_APP_MODE_H264 */
 
 void app_main(void)
 {
 #if defined(CONFIG_APP_MODE_CAMERA_RAW)
     app_main_raw();
+#elif defined(CONFIG_APP_MODE_H264)
+    app_main_h264();
 #elif defined(CONFIG_APP_MODE_NET)
-    app_main_net();
+    app_net_init();
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(5000));
+        ESP_LOGI(TAG, "net heartbeat");
+    }
 #else
     lvgl_init();
     if (esp_lv_adapter_lock(-1) == ESP_OK) {

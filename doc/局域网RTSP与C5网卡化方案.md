@@ -1,6 +1,6 @@
 # 局域网 RTSP 与 C5 网卡化方案 · 本工程适配评估
 
-> **状态：S1 / S2 已完整验收通过（2026-11-11 晚）；S3 起尚未实施**。用户明确：Matter-WebRTC 暂缓，先做**局域网 RTSP**；并指出当前 C5 跑的 ESP-AT SDIO 固件不合适，希望「直接把 C5 当网卡使用」。
+> **状态：S1 / S2 / S3 已完整验收通过（2026-11-11）；S4 起尚未实施**。用户明确：Matter-WebRTC 暂缓，先做**局域网 RTSP**；并指出当前 C5 跑的 ESP-AT SDIO 固件不合适，希望「直接把 C5 当网卡使用」。
 > **S2 实测**：本工程已接入 `esp_hosted`，`factory` 扩到 4M，新增 `APP_MODE_NET`，主工程内 `got ip:10.206.119.248` 且 ping 通（见第 12 节）。
 > **S1 实测**：C5 已重刷 ESP-Hosted 3.1.0 `cp/` 固件，P4 跑官方 `mcu_host`，SDIO 握手 / RPC / Wi-Fi 控制面 / lwIP 数据面全部打通，`got ip:10.206.119.248`，同网段 Windows 主机 ping 通（0% 丢包）。详见第 11 节。摄像头裸显阶段（色块、闪烁已解决，偏绿发暗按用户要求不再追）见 `doc/摄像头裸显预览方案.md` 第 9 节。
 
@@ -13,7 +13,7 @@
 | IDF 兼容性 | ✅ `espressif/esp_hosted` **3.1.0** 要求 `idf >= 5.5`，targets 含 `esp32c5` 与 `esp32p4`；本工程 v6.1 在范围内 |
 | RTSP 栈 | ✅ 官方组件齐备：`esp_video`（采集，默认传感器就是 SC2336）+ `esp_h264`（P4 硬件编码）+ `esp_rtsp_service`（RTSP Server） |
 | 主要工作量 | ① 重刷 C5 固件并对齐 SDIO 配置（S1 ✅）；② 重规划 app 分区 768K→4M 并接入 esp_hosted（S2 ✅）；③ ISP 输出从 RGB565 改到 YUV420 供 H.264（S3 待办） |
-| 建议 | **先在独立验证工程跑通 S1 再动本工程基线** —— ✅ S1（第 11 节）与 S2（第 12 节）均已于 2026-11-11 完整验收通过，可进入 S3 |
+| 建议 | **先在独立验证工程跑通 S1 再动本工程基线** —— ✅ S1（第 11 节）、S2（第 12 节）、S3（第 13 节）均已于 2026-11-11 完整验收通过，可进入 S4 |
 
 顺带关掉了 `doc/Matter-WebRTC摄像头方案适配评估.md` 里两个 P0 阻塞：
 
@@ -184,9 +184,9 @@ SC2336 800x800 RAW8
 
 ## 6. 分区与构建约束（必须处理）
 
-- **分区**：`partitions.csv` 的 `factory` 只有 **768K**；GUI 基线镜像已达 752 KiB（占 98%），当前 CAMERA_RAW 是 0x4bdc0。加入 `esp_hosted`（含 `esp_tinyusb`）、`esp_video`、`esp_h264`、`esp_rtsp_service` 与 Wi-Fi/lwIP 栈后**必然超限**。用户已明确允许重分区 → 建议把 `factory` 扩到 **3~4 MB**（从 `storage` 15M 中划），或改双 OTA 分区。**这一步要在 S2 之前做**。
+- **分区（S2 已完成）**：`factory` 已由 768K 扩到 **4M**，`storage` 移到 `0x440000` / 12032K；16 MB 总量不变。原始 768K 时代 GUI 镜像占 98% 的瓶颈已解除；S3 加入 `esp_h264` 后镜像 `0xb13c0` 仍剩 83%。
 - **MINIMAL_BUILD ON**：新增组件必须显式写进 `main/CMakeLists.txt` 的 `REQUIRES`；模式切换后仍需 `idf.py reconfigure`（既有坑，见 `AGENTS.md`）。
-- **组件依赖**：`esp_rtsp_service` 依赖 `esp_media_service` / `esp_service_scheduler` 等 ADF 体系服务，与现有 `lvgl` / `esp_cam_sensor` / `esp_lvgl_adapter` 的兼容性**待实测**。
+- **组件依赖**：S3 已验证 `esp_h264` 与现有 `camera_preview` / `esp_cam_sensor` / 网络链共存无冲突。`esp_rtsp_service` 依赖 `esp_media_service` / `esp_service_scheduler` 等 ADF 体系服务，兼容性**待 S4 实测**。
 - `managed_components/**` 禁手改；改动经 `idf_component.yml` 走组件管理器。
 
 ## 7. 分步落地计划
@@ -196,7 +196,7 @@ SC2336 800x800 RAW8
 | **S0** | 核实硬件通道、组件版本、RTSP 栈（本文） | 一份可执行的引脚/版本清单 | 否（已完成） |
 | **S1** | C5 刷 `cp/`，P4 跑官方 `mcu_host` Wi-Fi Station | `Received INIT event` + `Base transport is set-up` + `got ip` + ping/iperf | ✅ **已完成**：`got ip:10.206.119.248`、ping 0% 丢包；独立验证工程，本工程基线零改动 |
 | **S2** | 本工程接入 `esp_hosted`，配 SDIO GPIO 18/19/14~17，重规划分区 | 主工程内 `got ip` + ping 通 | ✅ **已完成**：`got ip:10.206.119.248`、ping 3/3 通；分区 768K→4M，新增 `APP_MODE_NET`（第 12 节） |
-| **S3** | 接 `esp_video` + `esp_h264`，SC2336 → YUV420 → H.264 NAL | 本地 dump 出合法 Annex-B NAL（ffprobe 可解析） | 是 |
+| **S3** | 接 `esp_h264`，直接编码现有 RGB565 采集帧 → H.264 NAL | ffprobe / ffmpeg 解析通过 | ✅ **已完成**：`Constrained Baseline 800x800 yuv420p`、NAL `[SPS,PPS,IDR]`、解码 OK，30 fps `err=0`（第 13 节） |
 | **S4** | 接 `esp_rtsp_service` Server（H264, 8554） | VLC / ffplay 能稳定拉流 | 是 |
 | **S5** | 与屏幕预览 / LVGL 共存、分区定型、性能与稳定性收尾 | 预览与推流同时稳定 | 是 |
 
@@ -311,11 +311,11 @@ I (658) wifi_mcu_example: ESP-Hosted MCU WiFi Example Starting...
 
 ### 11.6 S1 遗留与 S2 注意事项
 
-- **凭据安全**：官方 `mcu_host/main.c` 连接成功时会把 SSID 与密码明文打印到串口（`connected to ap SSID:... password:...`）。接入本工程时**必须删掉这行**；密码由 Kconfig 或 NVS 注入，不写进文档 / 笔记 / git。
+- **凭据安全**：官方 `mcu_host/main.c` 连接成功时会把 SSID 与密码明文打印到串口，接入本工程时已删掉这行。**2026-11-11 深夜用户明确授权**（手机热点、外部无法物理接入、私密仓库），真实凭据自 S3 起随本地 `sdkconfig` 纳入 git；`sdkconfig.defaults.net` 仍用占位值。见第 13.4 节。
 - **网络拓扑**：虚拟机 `ens33=192.168.74.128/24`（NAT 出网）、`ens37=192.168.126.128/24`（SSH 通道），都**不在热点网段** `10.206.119.0/24`；能直连板子的是 Windows 主机 WLAN 网卡 `10.206.119.76`。后续 RTSP 拉流应从 Windows 主机或同网段设备发起，或给虚拟机加到该网段的路由 / 改桥接。
 - **P4 当前固件**：flash 里是 host 验证固件，**摄像头固件已被临时覆盖**；用主工程 `idf.py -p /dev/ttyACM0 flash` 即可烧回，代码与 git 不受影响。
 - **C5 无需再动**：`cp/` 固件已烧好，拨码保持在 P4 侧即可，后续只改 P4 应用。
-- **待确认项收口**：T1 ✅（用户明确无需备份 AT）、T2 ✅、T3 ✅（40 MHz 握手成功，无需降速）、T4 ✅（GPIO2↔GPIO6 未用到，不影响）、T5 ✅、T6 ✅、T9 ✅（S2 已验证其它模式可编译）；T7/T8 留 S3 / S4 验证。
+- **待确认项收口**：T1 ✅、T2 ✅、T3 ✅、T4 ✅、T5 ✅、T6 ✅、T9 ✅、T7 ✅（S3 已定：RGB565 直喂 HW encoder，无需 esp_video 重写）；T8 留 S4 验证。
 
 
 ## 12. S2 实测记录（2026-11-11 晚，本工程接入 ESP-Hosted / 已完整验收）
@@ -338,7 +338,7 @@ I (658) wifi_mcu_example: ESP-Hosted MCU WiFi Example Starting...
 - `main/Kconfig.projbuild`：新增 `APP_MODE_NET` 与 `APP_WIFI_SSID` / `APP_WIFI_PASSWORD`（默认占位，真实值只在本地 `sdkconfig`）。
 - `main/CMakeLists.txt`：`MINIMAL_BUILD ON` 三分支，继续保留「回读 sdkconfig」兜底（两阶段组件发现）；NET 分支 `REQUIRES spi_flash esp_psram esp_hosted esp_wifi esp_event esp_netif nvs_flash esp_driver_gpio`，**不链接 LVGL / camera_preview**。
 - `main/main.c`：新增 `app_main_net()`；ESP-Hosted 由 `CONFIG_ESP_HOSTED_AUTO_CALL_INIT_BEFORE_APP_MAIN` 在 `app_main` 之前自动完成 SDIO 握手，应用只跑标准 `esp_netif` + Wi-Fi STA。**刻意删掉了官方示例里明文打印 SSID / 密码的那行日志**。
-- 新增 `sdkconfig.defaults.net` 作为不含真实凭据的配置模板；`.gitignore` 排除组件管理器新下载的 `managed_components/*/`。
+- 新增 `sdkconfig.defaults.net` 作为配置模板（占位值）；真实凭据按用户授权随 `sdkconfig` 入库；`.gitignore` 排除组件管理器新下载的 `managed_components/*/`。
 
 ### 12.3 关键配置（与独立验证工程一致）
 
@@ -376,11 +376,68 @@ Windows 主机 `10.206.119.76` → `ping 10.206.119.248`：**3/3 通、0% 丢包
 
 1. **漏了 `WIFI_EVENT_STA_START → esp_wifi_connect()`**：第一版只处理 disconnected，STA 启动后从不发起连接 —— SDIO 握手全过、Wi-Fi 配置也生效，但 25 秒都没有 `got ip`。补上后 1.4 s 内拿到 IP。这是 S2 唯一的功能性 bug。
 2. **编辑工具产出的文件带 UTF-8 BOM**：`partitions.csv` 首行出现 BOM 字符，虽在注释行不影响解析，已统一清除；以后上传生成文件先查 BOM。
-3. **凭据写入**：`sdkconfig` 含真实密码，**刻意不提交**；写密码时工具回显会替换字符串，改用 base64 传参 + SHA1 校验。应用日志不打印 SSID / 密码。
+3. **凭据写入**：S2 阶段 `sdkconfig` 含真实密码且刻意不提交，S3 起用户已授权提交（见第 13.4 节）；写密码时工具回显会替换字符串，改用 base64 传参 + SHA1 校验。应用日志不打印 SSID / 密码。
 4. **组件管理器副作用**：reconfigure 顺带更新了 tracked 的 `espressif__esp_lv_decoder` 几个文件（CHANGELOG / `.component_hash` / `esp_lv_decoder.c`），属生成器产物，**本轮不提交**；新下载的组件目录已由 `.gitignore` 排除。
 
 ### 12.6 下一步（S3）
 
-- 接 `esp_video` + `esp_h264`：把 ISP 输出从 RGB565 改到 YUV420，先关屏幕预览直接给编码器，dump 合法 Annex-B NAL。
-- `socket()` 真实收发尚未验证（目前只有 ICMP 回应），S4 的 RTSP Server 会覆盖这一点。
+- ✅ S3 已完成：改用 `esp_h264` 直接编码 RGB565，NAL 经 ffprobe / ffmpeg 验证合法（见第 13 节）。
+- `socket()` 真实收发：S2 已有 ICMP 回应，TCP:9999 因本轮 Wi-Fi 认证失败暂未验收，待热点恢复后补测。
 - 当前 P4 flash 跑的是 NET 模式固件；切回摄像头只需把 `sdkconfig` 的 `APP_MODE` 改回并重编烧录。
+
+## 13. S3 实测记录（2026-11-11 深夜，H.264 编码 / 已完整验收）
+
+用户「继续往下面推进」，并明确授权把真实热点凭据纳入本私密仓库。
+
+### 13.1 关键决策：不改采集链，直接编码 RGB565
+
+调研推翻了第 5.3 节原本推荐的方案 A（ISP 改输出 YUV420）：
+
+- `espressif/esp_h264` **v1.5.0** 的 P4 硬件编码器明确支持 `ESP_H264_RAW_FMT_RGB565_LE`（组件注册表 feature 表 HW encoder 列 = supported），且 IDR 帧自动带 SPS/PPS。
+- IDF 6.1 同时确认 `CAM_CTLR_COLOR_YUV420` / `ISP_COLOR_YUV420` = `ESP_COLOR_FOURCC_OUYY_E_VYY`，即 ISP 原生也能输出编码器要的 YUV420；**两条路都通**，但 RGB565 路线对已跑通的采集链零改动。
+
+因此采用「方案 D」：保留 `camera_preview` 的 CSI(RAW8 bypass) → ISP(RAW8→RGB565 + WBG/demosaic/gamma/color) → DMA 直写 DPI fb 全链路和屏幕预览，把 DPI 帧缓冲中部那块**连续 800×800 RGB565（1,280,000 B）直接作为编码器输入**，零拷贝、零格式转换。
+
+### 13.2 代码结构
+
+- 新增 `APP_MODE_H264`（第 4 个 `APP_MODE` 选项）：`main/CMakeLists.txt` 四分支，`REQUIRES` 同时含网络链（`esp_hosted esp_wifi esp_event esp_netif nvs_flash lwip`）、摄像头链（`camera_preview lcd_jd9366 esp_mm esp_lcd esp_driver_i2c esp_driver_gpio`）与 `espressif__esp_h264`；`MINIMAL_BUILD` 回读 sdkconfig 的兜底扩展为四模式。
+- `main/idf_component.yml` 新增 `espressif/esp_h264 ^1.5.0`（实得 **1.5.0**）。
+- `components/camera_preview` 新增可选帧回调 `camera_preview_set_frame_cb()`：在 `cam_rx_task` 每帧 `draw_bitmap` 提交后同步调用；默认 NULL，**摄像头基线行为完全不变**。
+- `main/h264_sink.c`：`esp_h264_enc_hw_new(RGB565_LE, 800×800, GOP30, fps30, 2 Mbps, QP24~36)` → `esp_h264_enc_open()` → 每帧 `esp_h264_enc_process()`；输出缓冲用 `esp_h264_aligned_calloc(..., ESP_H264_MEM_SPIRAM)`。首个 IDR 帧既通过 **TCP:9999** 完整发给 PC，也通过串口 `NALHEX` 分块导出（32 B/行），后者不依赖网络。
+- `main.c` 把网络初始化抽成 `app_net_init()` 供 NET / H264 共用；H264 分支顺序 `app_net_init() → lcd_jd9366_init(2) → h264_sink_start() → camera_preview_start()`。
+
+### 13.3 验收：ffprobe / ffmpeg 解析通过
+
+编译 1678 步零错误，`p4.bin 0xb13c0`（4M 分区剩 83%）。运行日志：
+
+```text
+I (3561) h264_sink: hw encoder ready: 800x800 RGB565_LE, out cap=1280000, GOP=30, fps=30
+I (3561) h264_sink: NAL dump server listening on TCP:9999
+I (3748) cam_prev: camera preview started
+I (3809) h264_sink: first IDR NAL len=3046 type=0 head=00 00 00 01 67 42 c0 1f ... 00 00 00 01 68 ce 04
+I (8755)  main: h264 frames=149 bytes=715695  idr=5  err=0 cam=149
+I (13755) main: h264 frames=299 bytes=1464495 idr=10 err=0 cam=299
+```
+
+把 96 行 `NALHEX`（3046 B）还原成 `s3_idr.h264` 后，本机 ffprobe / ffmpeg：
+
+```text
+codec_name=h264  profile=Constrained Baseline  width=800  height=800  pix_fmt=yuv420p
+Annex-B 起始码偏移 [0, 25, 34] → NAL 类型 [7 SPS, 8 PPS, 5 IDR]
+ffmpeg 解码第一帧：DECODE_OK
+```
+
+**S3 判据达成**：产出可被标准工具解析的合法 Annex-B H.264 码流；30 fps 编码零错误，编码帧数与采集帧数 1:1，屏幕预览同步保留（`uniq8≈39`、`csi_err=0` 说明编的是真实画面）。
+
+### 13.4 本轮踩的坑
+
+1. **漏了 `lcd_jd9366_init(2)`**：`camera_preview` 要写 DPI 帧缓冲，H264 分支启动时报 `LCD panel not initialised / ESP_ERR_INVALID_STATE`；补上后正常。
+2. **Wi-Fi 认证失败（未解决，S4 前置）**：本轮多次烧录后 STA 一直 `StaDisconnected reason=2 rssi=-34~-49`，拿不到 IP（S2 时曾成功 `got ip:10.206.119.248`）。已排除：密码变化（SHA1 `fcd7f581bd72` 与 S2 一致）、信号强度、认证模式（`netsh wlan` 显示热点为 WPA3-SAE `00-0f-ac:8`，已补 `WIFI_AUTH_WPA2_WPA3_PSK` + `WPA3_SAE_PWE_BOTH` 仍失败）。判断为**热点侧认证表 / 新设备接入限制**，需用户重启手机热点后复验；TCP:9999 因此暂未实测，NAL 验收改走串口导出。
+3. **串口导出导致短暂提交积压**：首帧 dump 约 0.8 s 阻塞 `cam_rx_task`，`commits` 比 `frames` 恒定落后 21 帧，但提交速率仍 30/s，不影响画面；仅首帧一次性行为。
+4. **凭据策略变更**：用户明确「手机热点别人无法物理连接、且是私密仓库」，授权推送真实 Wi-Fi 密码。故 `sdkconfig` 自本阶段起纳入 git；`sdkconfig.defaults.net` 仍只保留占位值。若仓库日后转为公开或更换热点，应先清理 git 历史中的凭据。
+
+### 13.5 下一步（S4）
+
+- 恢复 Wi-Fi 后验收 TCP:9999（顺带补上 S2 遗留的 socket 真实收发）。
+- 接 `espressif/esp_rtsp_service` Server（H264 / 8554），VLC / ffplay 拉流；NAL 由 `h264_on_frame` 回调直接交给 RTP 打包。
+- 若要走 ISP 原生 YUV420（省 25% 带宽），`CAM_CTLR_COLOR_YUV420` / `ISP_COLOR_YUV420` 已确认可用，作为后续优化备选。

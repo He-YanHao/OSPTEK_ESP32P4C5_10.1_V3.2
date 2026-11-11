@@ -12,6 +12,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <stddef.h>
 #include "esp_err.h"
 
 #ifdef __cplusplus
@@ -55,6 +56,21 @@ esp_err_t camera_preview_stop(void);
  * 才是内容与白平衡判据。
  */
 uint32_t camera_preview_get_frame_count(void);
+
+/**
+ * @brief 每帧提交完成后的回调（S3 起供 P4 硬件 H.264 编码器消费）。
+ *
+ * frame 指向刚由 CSI/ISP 的 DMA 写完的 RGB565 画面（800x800，len 字节），
+ * 即 DPI 帧缓冲中部的那块连续区域。回调在 camera_preview 的接收任务上下文
+ * 同步执行，必须在本函数返回前用完这块 buffer —— 双缓冲 ping-pong 会很快
+ * 复用它，不要长期持有指针。
+ *
+ * 默认回调为 NULL，注册前摄像头直显行为完全不变。
+ * 必须在 camera_preview_start() 之前注册，否则会漏掉首帧。
+ */
+typedef void (*camera_preview_frame_cb_t)(const uint8_t *frame, size_t len, void *user_ctx);
+
+void camera_preview_set_frame_cb(camera_preview_frame_cb_t cb, void *user_ctx);
 
 #ifdef __cplusplus
 }

@@ -1,4 +1,4 @@
-# S2 网络基线默认配置模板（不含真实凭据）
+# 网络基线配置模板（占位值；真实凭据见仓库内 sdkconfig）
 #
 # 用法（虚拟机主工作区）：
 #   1) 复制本文件中的配置项，合并进本地 sdkconfig；或
@@ -6,8 +6,8 @@
 #   2) 把 CONFIG_APP_WIFI_SSID / CONFIG_APP_WIFI_PASSWORD 改成本地真实值
 #   3) idf.py reconfigure && idf.py build && idf.py -p /dev/ttyACM0 flash
 #
-# 真实 SSID / 密码只允许存在于本地 sdkconfig。
-# sdkconfig 含凭据，禁止提交到 git / 写进文档 / 笔记。
+# 用户已授权把真实凭据随 sdkconfig 纳入本私密仓库（手机热点、外部无法物理接入）。
+# 本模板仍只保留占位值；若仓库转为公开或更换热点，须先清理 git 历史。
 
 CONFIG_APP_MODE_NET=y
 # CONFIG_APP_MODE_GUI is not set
@@ -30,6 +30,6 @@ CONFIG_ESP_HOSTED_HOST_RESET_GPIO=54
 
 CONFIG_FREERTOS_HZ=1000
 
-# Wi-Fi 凭据（占位，请填本地真实值，不要提交）
+# Wi-Fi 凭据（占位；真实值见 sdkconfig，已按用户授权入库）
 CONFIG_APP_WIFI_SSID="myssid"
 CONFIG_APP_WIFI_PASSWORD="mypassword"
