@@ -228,3 +228,67 @@ SC2336 800x800 RAW8
 
 - 本文是**工程文档**。按用户约定「实际做出成绩之后再计入笔记」，**在 S4 真正跑通局域网 RTSP 之前，不沉淀到 `D:\Documents\Notes`**。
 - 同步触发：C5 固件形态、SDIO 引脚结论、分区方案、组件依赖任一变化时，更新本文，并同步 `doc/工程介绍.md` 与 `AGENTS.md` 相关章节。
+
+---
+
+## 11. S1 实测记录（2026-11-11 晚，C5 网卡化 / 已完成软件侧）
+
+用户确认 AT 固件可直接覆盖、拨码已切到 C5、同意方案后执行。**只动独立验证工程 `/home/he/esp_hosted`，本工程基线代码零改动。**
+
+### 11.1 拨码验证
+
+`/dev/ttyACM0` 用 `esptool chip_id` 读到的是 **ESP32-C5 rev v1.2**（Wi-Fi 6 双频、48 MHz 晶振、4 MB Flash），确认拨码已切到 C5 侧，而非 P4。
+
+### 11.2 仓库与工具链
+
+- `git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/espressif/esp-hosted-mcu.git /home/he/esp_hosted`，版本 **3.1.0**。
+- 子模块里带 `port/idf_components/esp_wifi_remote/esp_wifi_remote` → **关闭待确认项 T5**：3.x 内部以子模块形式集成 Wi-Fi remote 层，不需要再单独引入该组件；slave target 的 `SLAVE_IDF_TARGET` choice 就定义在其 `idf_v6.1/Kconfig.slave_select.in`。
+- **没有跑 `install.sh` / `install.fish`**（那会另装一份 ESP-IDF），直接用本工程现有的 **IDF v6.1** + `idf.py` 构建 → **关闭待确认项 T6**：v6.1 完全可用。`export.fish` 只在需要用 `eh.py` 时才必须 source。
+- **与第 4 节官方流程的差异**：官方用 `eh.py set-target / menuconfig / flash monitor`；本次用标准 `idf.py set-target / reconfigure / build / flash`，对 `cp/` 与 `mcu_host/` 这类标准 ESP-IDF 工程等价，且避免多装一套 IDF。
+
+### 11.3 C5 侧 `cp/` 固件（已烧录）
+
+| 项 | 结果 |
+| --- | --- |
+| 工程 | `examples/wifi/sta/cp/`，`idf.py set-target esp32c5` 一次通过 |
+| **SDIO GPIO 默认值** | `CONFIG_EH_TRANSPORT_CP_SDIO_PIN_CMD=10 / CLK=9 / D0=8 / D1=7 / D2=14 / D3=13` —— **与本板 C5 侧逐脚一致，一个都不用改** |
+| 传输 / 模式 | `CONFIG_EH_TRANSPORT_CP_SDIO=y`，`..._MODE_SW_AGGR=y`（rel-3 默认），`HIGH_SPEED=y` |
+| 分区 | `partitions_eh_cp_ota_4m.csv`，匹配检测到的 4 MB Flash |
+| 编译 | 1187 步零错误，`eh_cp_wifi_sta.bin` = `0x11a190`（约 1.1 MB），app 分区剩 37% |
+| 烧录 | `idf.py -p /dev/ttyACM0 -b 460800 flash`，1,155,472 B，Hash 校验通过 |
+
+C5 启动日志（验收判据已达成）：
+
+```text
+I (426) ehcp_core: ESP-Hosted core init
+I (435) ehcp_core: - WLAN over SDIO
+I (456) ehcp_core: ESP-Hosted Firmware version :: EH-3.1.0
+I (463) ehcp_core: Transport used :: SDIO only
+I (476) SDIO_SLAVE: Using SDIO interface (TX_MODE=0)
+I (481) SDIO_SLAVE: SDIO datapath mode: SW_AGGR
+I (638) ehcp_wifi: WiFi feature init ok
+I (647) ehcp_core: ESP-Hosted core initialized
+I (658) wifi_mcu_example: ESP-Hosted MCU WiFi Example Starting...
+```
+
+### 11.4 P4 侧 `mcu_host` 固件（已编译，待烧录）
+
+| 项 | 结果 |
+| --- | --- |
+| 工程 | `examples/wifi/sta/mcu_host/`，`idf.py set-target esp32p4` |
+| **必须改的一项** | 默认 `SLAVE_IDF_TARGET_ESP32C6=y`（官方对 P4 host 的默认）→ 改为 `CONFIG_SLAVE_IDF_TARGET_ESP32C5=y` 且 `CONFIG_ESP_HOSTED_IDF_SLAVE_TARGET="esp32c5"`，`idf.py reconfigure` 后生效 |
+| SDIO 引脚默认值 | `CMD=19 / CLK=18 / D0=14 / D1=15 / D2=16 / D3=17` —— **与本板 P4 侧逐脚一致**，无需改 |
+| Reset | `CONFIG_ESP_HOSTED_HOST_RESET_GPIO=54` —— **与本板 GPIO54 一致**；`CP_RESET_STRATEGY_ALWAYS`，settle 1500 ms |
+| 总线 | 4-bit，`CLK_KHZ=40000`（40 MHz），`RX_STREAMING_MODE=y` |
+| 模式配套 | host 的 `RX_STREAMING_MODE` 是接收侧优化，与 CP 的 `SW_AGGR` 是 rel-3 默认配套组合，**不是**「Packet vs Streaming 不一致」→ **关闭待确认项 T2** |
+| 编译 | 1199 步零错误，`wifi_sta_mcu_host.bin` = `0x8d620`，app 分区剩 45% |
+| Wi-Fi 凭据 | 仍是示例占位 `myssid` / `mypassword`，**需用户提供真实 SSID/密码**才能验收 `got ip` |
+
+> 官方 `host/Kconfig.ext` 里存在 `ESP_HOSTED_P4_C5_CORE_BOARD` 板型预设（P4+C5 核心板），进一步佐证本板形态在官方支持范围内；本次未启用该板型选项，因手工配置已逐项对齐。
+
+### 11.5 尚未完成 / 需要用户配合
+
+1. **烧录 P4 host 固件需要把拨码切回 P4（上 = P4）**；C5 固件已就位，切回不影响它。
+2. 烧录后验收 `Received INIT event from ESP32 peripheral` / `Base transport is set-up`（**传输层握手，不需要 Wi-Fi 凭据**）。
+3. `got ip` / ping / iperf 需要真实 AP 的 SSID 与密码，写入 host 工程 `sdkconfig` 后重编译。
+4. 待确认项状态更新：T1（用户明确无需备份 AT 固件，已关闭）、T2 ✅、T5 ✅、T6 ✅、T4（`C5 GPIO2 ↔ P4 GPIO6` 未用到，握手成功即可视为不影响）、T3（51 kΩ 上拉/电平/时钟：默认 40 MHz 若握手失败再降到 5 MHz 验证）、T7/T8/T9 仍待后续阶段。
