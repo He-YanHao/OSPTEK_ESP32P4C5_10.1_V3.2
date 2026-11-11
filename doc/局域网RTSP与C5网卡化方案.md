@@ -1,7 +1,7 @@
 # 局域网 RTSP 与 C5 网卡化方案 · 本工程适配评估
 
-> **状态：方案评估稿（2026-11-11）**。用户明确：Matter-WebRTC 暂缓，先做**局域网 RTSP**；并指出当前 C5 跑的 ESP-AT SDIO 固件不合适，希望「直接把 C5 当网卡使用」。
-> 本文只做事实核对与路径设计，**尚未烧录 / 尚未跑通**。摄像头裸显阶段（色块、闪烁已解决，偏绿发暗按用户要求不再追）见 `doc/摄像头裸显预览方案.md` 第 9 节。
+> **状态：S1（C5 网卡化）已完整验收通过（2026-11-11 晚）；S2 起尚未实施**。用户明确：Matter-WebRTC 暂缓，先做**局域网 RTSP**；并指出当前 C5 跑的 ESP-AT SDIO 固件不合适，希望「直接把 C5 当网卡使用」。
+> **S1 实测**：C5 已重刷 ESP-Hosted 3.1.0 `cp/` 固件，P4 跑官方 `mcu_host`，SDIO 握手 / RPC / Wi-Fi 控制面 / lwIP 数据面全部打通，`got ip:10.206.119.248`，同网段 Windows 主机 ping 通（0% 丢包）。详见第 11 节。摄像头裸显阶段（色块、闪烁已解决，偏绿发暗按用户要求不再追）见 `doc/摄像头裸显预览方案.md` 第 9 节。
 
 ## 0. 结论摘要
 
@@ -12,7 +12,7 @@
 | IDF 兼容性 | ✅ `espressif/esp_hosted` **3.1.0** 要求 `idf >= 5.5`，targets 含 `esp32c5` 与 `esp32p4`；本工程 v6.1 在范围内 |
 | RTSP 栈 | ✅ 官方组件齐备：`esp_video`（采集，默认传感器就是 SC2336）+ `esp_h264`（P4 硬件编码）+ `esp_rtsp_service`（RTSP Server） |
 | 主要工作量 | ① 重刷 C5 固件并对齐 SDIO 配置；② ISP 输出从 RGB565 改到 YUV420 供 H.264；③ 重规划 768K app 分区 |
-| 建议 | **先在独立验证工程跑通 S1（C5 网卡化）再动本工程基线**，与之前 Matter 评估的结论一致 |
+| 建议 | **先在独立验证工程跑通 S1（C5 网卡化）再动本工程基线** —— ✅ S1 已于 2026-11-11 完整验收通过（见第 11 节），可进入 S2 |
 
 顺带关掉了 `doc/Matter-WebRTC摄像头方案适配评估.md` 里两个 P0 阻塞：
 
@@ -108,7 +108,7 @@ ESP-Hosted 是**双固件**方案，两侧必须配置一致：
 - SDIO 起手时钟先用 **400 kHz ~ 5 MHz** 验证握手，稳定后再提高（host 验证范围 400 kHz~20 MHz，SDIO 上限 50 MHz）。
 - `C5 GPIO2 ↔ P4 GPIO6` 这根额外 IO 在 ESP-Hosted 里对应 handshake / data-ready / reset 中的哪一个，需对照 `cp/` 与 host 的 menuconfig 确认并两侧对齐。
 
-## 4. C5 固件更换步骤（S1，建议先在独立工程做）
+## 4. C5 固件更换步骤（S1，已在独立工程实测完成）
 
 > ⚠️ 会覆盖 C5 现有 AT 固件，**先备份**，且需要物理拨码开关切换烧录目标。
 
@@ -193,7 +193,7 @@ SC2336 800x800 RAW8
 | 阶段 | 内容 | 验收判据 | 是否动本工程基线 |
 | --- | --- | --- | --- |
 | **S0** | 核实硬件通道、组件版本、RTSP 栈（本文） | 一份可执行的引脚/版本清单 | 否（已完成） |
-| **S1** | C5 刷 `cp/`，P4 跑官方 `mcu_host` Wi-Fi Station | `Received INIT event` + `Base transport is set-up` + `got ip` + ping/iperf | **否**，独立验证工程 |
+| **S1** | C5 刷 `cp/`，P4 跑官方 `mcu_host` Wi-Fi Station | `Received INIT event` + `Base transport is set-up` + `got ip` + ping/iperf | ✅ **已完成**：`got ip:10.206.119.248`、ping 0% 丢包；独立验证工程，本工程基线零改动 |
 | **S2** | 本工程接入 `esp_hosted`，配 SDIO GPIO 18/19/14~17，重规划分区 | P4 工程内 `socket()` / ping 通 | 是 |
 | **S3** | 接 `esp_video` + `esp_h264`，SC2336 → YUV420 → H.264 NAL | 本地 dump 出合法 Annex-B NAL（ffprobe 可解析） | 是 |
 | **S4** | 接 `esp_rtsp_service` Server（H264, 8554） | VLC / ffplay 能稳定拉流 | 是 |
@@ -203,12 +203,12 @@ SC2336 800x800 RAW8
 
 | # | 项 | 状态 |
 | --- | --- | --- |
-| T1 | C5 现有 AT 固件备份与回刷方式（拨码上=P4 / 下=C5，C5 有独立 UART） | ⚠️ 动手前确认 |
-| T2 | `cp/` 与 host 的 SDIO bus width / packet-streaming / RPC version 对齐 | ⚠️ S1 实测 |
-| T3 | 51 kΩ 上拉、3.3 V 电平、SDIO 时钟上限 | ⚠️ 查原理图 / 实测 |
-| T4 | `C5 GPIO2 ↔ P4 GPIO6` 在 ESP-Hosted 中的功能定位 | ❓ 待确认 |
-| T5 | `esp_wifi_remote` 是否与 `esp_hosted` 3.x 同时需要 | ❓ S1 实测 |
-| T6 | `install.sh` 自带 IDF 版本与本工程 v6.1 是否冲突 | ❓ 待确认 |
+| T1 | C5 现有 AT 固件备份与回刷方式 | ✅ 用户明确无需备份，已直接覆盖 |
+| T2 | `cp/` 与 host 的 SDIO bus width / packet-streaming / RPC version 对齐 | ✅ 4-bit / SW_AGGR + streaming / RPC V2 全部协商成功 |
+| T3 | 51 kΩ 上拉、3.3 V 电平、SDIO 时钟上限 | ✅ 40 MHz 一次握手成功，无需降速 |
+| T4 | `C5 GPIO2 ↔ P4 GPIO6` 在 ESP-Hosted 中的功能定位 | ✅ 未用到，不影响链路 |
+| T5 | `esp_wifi_remote` 是否与 `esp_hosted` 3.x 同时需要 | ✅ 仓库子模块自带，P4 host 侧自动引入 |
+| T6 | `install.sh` 自带 IDF 版本与本工程 v6.1 是否冲突 | ✅ 跳过 install，v6.1 直接构建通过 |
 | T7 | ISP 输出 RGB565 → YUV420 的具体改法（方案 A/B/C） | ❓ S3 定 |
 | T8 | `esp_rtsp_service` 与 ADF 服务层在本工程的依赖兼容性 | ❓ S4 实测 |
 | T9 | 分区重规划后 GUI 基线是否仍能编译 | ❓ S2 验证 |
@@ -231,7 +231,7 @@ SC2336 800x800 RAW8
 
 ---
 
-## 11. S1 实测记录（2026-11-11 晚，C5 网卡化 / 已完成软件侧）
+## 11. S1 实测记录（2026-11-11，C5 网卡化 / 已完整验收通过）
 
 用户确认 AT 固件可直接覆盖、拨码已切到 C5、同意方案后执行。**只动独立验证工程 `/home/he/esp_hosted`，本工程基线代码零改动。**
 
@@ -271,7 +271,7 @@ I (647) ehcp_core: ESP-Hosted core initialized
 I (658) wifi_mcu_example: ESP-Hosted MCU WiFi Example Starting...
 ```
 
-### 11.4 P4 侧 `mcu_host` 固件（已编译，待烧录）
+### 11.4 P4 侧 `mcu_host` 固件（已烧录并验收）
 
 | 项 | 结果 |
 | --- | --- |
@@ -282,13 +282,37 @@ I (658) wifi_mcu_example: ESP-Hosted MCU WiFi Example Starting...
 | 总线 | 4-bit，`CLK_KHZ=40000`（40 MHz），`RX_STREAMING_MODE=y` |
 | 模式配套 | host 的 `RX_STREAMING_MODE` 是接收侧优化，与 CP 的 `SW_AGGR` 是 rel-3 默认配套组合，**不是**「Packet vs Streaming 不一致」→ **关闭待确认项 T2** |
 | 编译 | 1199 步零错误，`wifi_sta_mcu_host.bin` = `0x8d620`，app 分区剩 45% |
-| Wi-Fi 凭据 | 仍是示例占位 `myssid` / `mypassword`，**需用户提供真实 SSID/密码**才能验收 `got ip` |
+| 烧录 | `idf.py -p /dev/ttyACM0 -b 460800 flash`，Hash 校验通过 |
+| Wi-Fi 凭据 | 已写入本机热点的真实 SSID / 密码（仅存在于虚拟机独立验证仓库的 `sdkconfig`，**未入 git、未入文档**） |
 
 > 官方 `host/Kconfig.ext` 里存在 `ESP_HOSTED_P4_C5_CORE_BOARD` 板型预设（P4+C5 核心板），进一步佐证本板形态在官方支持范围内；本次未启用该板型选项，因手工配置已逐项对齐。
 
-### 11.5 尚未完成 / 需要用户配合
+### 11.5 完整验收：INIT event → got ip → ping（全部通过）
 
-1. **烧录 P4 host 固件需要把拨码切回 P4（上 = P4）**；C5 固件已就位，切回不影响它。
-2. 烧录后验收 `Received INIT event from ESP32 peripheral` / `Base transport is set-up`（**传输层握手，不需要 Wi-Fi 凭据**）。
-3. `got ip` / ping / iperf 需要真实 AP 的 SSID 与密码，写入 host 工程 `sdkconfig` 后重编译。
-4. 待确认项状态更新：T1（用户明确无需备份 AT 固件，已关闭）、T2 ✅、T5 ✅、T6 ✅、T4（`C5 GPIO2 ↔ P4 GPIO6` 未用到，握手成功即可视为不影响）、T3（51 kΩ 上拉/电平/时钟：默认 40 MHz 若握手失败再降到 5 MHz 验证）、T7/T8/T9 仍待后续阶段。
+把真实热点凭据写入 host 工程 `sdkconfig` 后重编译烧录（**凭据只存在于虚拟机独立验证仓库，未纳入本工程 git、未写入任何文档 / 笔记**），抓 30 秒串口，并从同网段主机做 ping 验证。
+
+| 判据 | 实测结果 |
+| --- | --- |
+| 拨码切回 P4 | `esptool chip_id` → ESP32-P4 rev v3.2，确认切对 |
+| P4 host 烧录 | `wifi_sta_mcu_host.bin` 0x8d620，Hash 校验通过 |
+| SDIO 总线 | `SDIO 4-bit 40000 kHz CLK=18 CMD=19 D0=14 D1=15 D2=16 D3=17 RESET=54` |
+| 复位与建卡 | `Reset co-processor using GPIO[54]` → `Card init success, TRANSPORT_RX_ACTIVE` → `SDIO Host operating in STREAMING MODE` |
+| 协处理器识别 | `slave chip id: 0x17 (esp32c5)`，`capabilities 0x01`（WLAN over SDIO） |
+| RPC / 版本 | `RPC version negotiated: V2`，`host=3.1.0 coprocessor=3.1.0 (match)` |
+| 模式协商 | `SDIO SW_AGGR negotiated (e2h=15872B h2e=15872B)`，`slave=streaming host=streaming` |
+| Wi-Fi 控制面 | `eh_wifi: set_config iface=STA ssid=「OnePlus」` → `esp_wifi_remote: esp_wifi_internal_reg_rxcb` |
+| **lwIP 数据面** | `esp_netif_handlers: sta ip: 10.206.119.248, mask: 255.255.255.0, gw: 10.206.119.141` → `got ip:10.206.119.248` |
+| **局域网双向通信** | Windows 主机 WLAN `10.206.119.76` → `ping 10.206.119.248`：**2/2 通、0% 丢包、152~160 ms、TTL=64** |
+
+结论：**C5 已从 AT 协处理器变成真网卡**，P4 侧用标准 `lwIP / esp_netif / socket` 即可访问局域网，S1 验收判据全部达成，S2（接入本工程）的前提成立。
+
+> 注：`Port 80` 不可达是预期的 —— host 示例没有起任何 TCP 服务，只验到 ICMP 回应；真实 socket 收发留到 S2 用 RTSP / iperf 验证。
+
+### 11.6 S1 遗留与 S2 注意事项
+
+- **凭据安全**：官方 `mcu_host/main.c` 连接成功时会把 SSID 与密码明文打印到串口（`connected to ap SSID:... password:...`）。接入本工程时**必须删掉这行**；密码由 Kconfig 或 NVS 注入，不写进文档 / 笔记 / git。
+- **网络拓扑**：虚拟机 `ens33=192.168.74.128/24`（NAT 出网）、`ens37=192.168.126.128/24`（SSH 通道），都**不在热点网段** `10.206.119.0/24`；能直连板子的是 Windows 主机 WLAN 网卡 `10.206.119.76`。后续 RTSP 拉流应从 Windows 主机或同网段设备发起，或给虚拟机加到该网段的路由 / 改桥接。
+- **P4 当前固件**：flash 里是 host 验证固件，**摄像头固件已被临时覆盖**；用主工程 `idf.py -p /dev/ttyACM0 flash` 即可烧回，代码与 git 不受影响。
+- **C5 无需再动**：`cp/` 固件已烧好，拨码保持在 P4 侧即可，后续只改 P4 应用。
+- **待确认项收口**：T1 ✅（用户明确无需备份 AT）、T2 ✅、T3 ✅（40 MHz 握手成功，无需降速）、T4 ✅（GPIO2↔GPIO6 未用到，不影响）、T5 ✅、T6 ✅；T7/T8/T9 留 S3 / S4 / S2 验证。
+

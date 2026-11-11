@@ -2,7 +2,7 @@
 
 > 基于 **ESP32-P4**（+ ESP32-C5 无线协处理器）的 10.1 英寸 MIPI-DSI 显示 / 触摸 / LVGL 工程基线。
 >
-> **当前状态**：显示、触摸、LVGL 与 GUI Guider UI 骨架已跑通；`APP_MODE` 可切换 GUI 基线与 `CAMERA_RAW` 裸显。**2026-11-10 摄像头本地直显已完整跑通**：MIPI-CSI → ISP → DMA → DPI 全链路经测试图案（彩色条纹 → 灰色渐变）与用户目视验证，镜头朝向实物后正常成像 `uniq8=124~135`、`30 fps`、`csi_err=0`（此前暗场常量系摄像头反扣桌面、镜头被遮挡的物理原因，见 `doc/摄像头裸显预览方案.md` 第 8.5 节）。**虚拟机 `~/esp/OSPTEK_ESP32P4C5_10.1_V3.2/` 是唯一主工作区**，Windows 侧不再同步代码。`components/esp32at_sdio` 为空占位组件，音频 / TF / USB / 无线等硬件能力尚未在软件中接入。**2026-11-11 起下一步方向**：局域网 RTSP 推流，先把 C5 从 AT SDIO 固件换成 ESP-Hosted 网卡方案；评估与分步落地计划见 `doc/局域网RTSP与C5网卡化方案.md`（评估稿，未跑通），Matter-WebRTC 暂缓。
+> **当前状态**：显示、触摸、LVGL 与 GUI Guider UI 骨架已跑通；`APP_MODE` 可切换 GUI 基线与 `CAMERA_RAW` 裸显。**2026-11-10 摄像头本地直显已完整跑通**：MIPI-CSI → ISP → DMA → DPI 全链路经测试图案（彩色条纹 → 灰色渐变）与用户目视验证，镜头朝向实物后正常成像 `uniq8=124~135`、`30 fps`、`csi_err=0`（此前暗场常量系摄像头反扣桌面、镜头被遮挡的物理原因，见 `doc/摄像头裸显预览方案.md` 第 8.5 节）。**虚拟机 `~/esp/OSPTEK_ESP32P4C5_10.1_V3.2/` 是唯一主工作区**，Windows 侧不再同步代码。`components/esp32at_sdio` 为空占位组件，音频 / TF / USB / 无线等硬件能力尚未在软件中接入。**2026-11-11 起下一步方向**：局域网 RTSP 推流，先把 C5 从 AT SDIO 固件换成 ESP-Hosted 网卡方案；评估与分步落地计划见 `doc/局域网RTSP与C5网卡化方案.md`（S1 C5 网卡化已于 2026-11-11 完整验收通过，见第 11 节），Matter-WebRTC 暂缓。**2026-11-11 晚 S1 完成**：C5 已重刷 ESP-Hosted 3.1.0 `cp/` 固件（AT SDIO 固件弃用），P4 经 4-bit SDIO 拿到 `10.206.119.248`，同网段 Windows 主机 ping 通、0% 丢包。
 
 ## 一眼看懂
 
@@ -60,7 +60,7 @@ idf.py -p /dev/ttyACM0 flash    # Ubuntu 虚拟机；Windows 侧为 COM7
 
 > 配置提示：当前 `sdkconfig` 中 `CONFIG_ESPTOOLPY_FLASHMODE_QIO=y` 与 `CONFIG_ESPTOOLPY_FLASHMODE="dio"` 不一致，烧录前请用 `idf.py menuconfig` 确认实际 Flash 模式（详见 `doc/工程介绍.md` 第 15 节）。本板实测：烧录用 dio、bootloader 运行时切到 QIO，两种模式均可启动。
 
-> **C5 侧固件（若后续要启用无线）**：开发板资料给出的预编译合并包为 `ESP32C5_2.12.9_0X0.bin`，烧录目标选 **ESP32-C5**（拨动开关往下拨）、地址 **0x0**，不要当应用烧到 0x10000；烧完拨回 P4。本仓库不含该固件，需从厂商资料仓库获取。
+> **C5 侧固件（已更换）**：原厂预编译 AT 合并包 `ESP32C5_2.12.9_0X0.bin` 已于 2026-11-11 弃用并覆盖；当前烧的是 **ESP-Hosted 3.1.0 `cp/` 固件**（独立验证仓库 `~/esp_hosted/examples/wifi/sta/cp`），P4 侧由此获得标准 `lwIP / esp_netif / socket`。烧 C5 需把拨动开关往下拨、烧完拨回 P4；详见 `doc/局域网RTSP与C5网卡化方案.md` 第 11 节。**不要再烧 AT 合并包**，否则会破坏网卡化链路。
 
 ## 目录结构
 
@@ -132,7 +132,8 @@ LVGL 不是线程安全的：任何非 LVGL 任务内操作 UI，都必须用 `e
 | S2 摄像头直显（`camera_preview`） | **已实测**：800x800@30fps，CSI+ISP 零拷贝写入 DPI 帧缓冲，画面居中、上下各 240 行黑边 |
 | S3 / 链路打通 + 正常成像（2026-11-10，Ubuntu 虚拟机） | **已实测通过**：测试图案彩条 → 灰度渐变验证全链路；镜头朝向白色小风扇后 `frames=30/s`、`commits` 1:1、`uniq8=124~135`、`csi_err=0`，真实图像数据有效。见 `doc/摄像头裸显预览方案.md` 第 8 节 |
 | `components/esp32at_sdio` | **空占位**，历史上曾有 AT / SPI 桥接实现，现已删除，当前不参与构建 |
-| 音频（ES8311 / NS4150 / 硅麦）、TF 卡、USB、C5 无线 | 硬件已具备，软件未接入 |
+| 音频（ES8311 / NS4150 / 硅麦）、TF 卡、USB | 硬件已具备，软件未接入 |
+| C5 无线（ESP-Hosted SDIO 网卡） | **S1 已跑通**（独立验证工程，`got ip` + ping）；本工程集成待 S2 |
 | 后续业务功能 | 需求待补充 |
 
 ## 硬件资料（本机路径）
@@ -160,7 +161,7 @@ LVGL 不是线程安全的：任何非 LVGL 任务内操作 UI，都必须用 `e
 - `doc/工程介绍.md`：完整工程介绍（架构、引脚、启动流程、扩展指南、已知坑）
 - `doc/Matter-WebRTC摄像头方案适配评估.md`：Matter 1.5 / WebRTC / H.264 摄像头方案针对本工程的适配评估（**评估稿，非已确定需求**；当前仅作为工程文档）
 - `doc/摄像头裸显预览方案.md`：第一阶段验证目标 —— 不链接 LVGL、不碰协议的摄像头本地直显（**S0~S2 实测记录 + 第 8 节链路打通 + 第 9 节开机稳定性与 ISP 色彩链**；本地直显已跑通，色块与闪烁已解决，偏绿发暗按用户要求暂不优化）
-- `doc/局域网RTSP与C5网卡化方案.md`：**当前下一步方向** —— 局域网 RTSP 与 C5 网卡化（ESP-Hosted）评估稿，含板级 SDIO 引脚原图核实、组件版本与 S1~S5 落地计划（评估稿，未跑通）
+- `doc/局域网RTSP与C5网卡化方案.md`：**当前下一步方向** —— 局域网 RTSP 与 C5 网卡化（ESP-Hosted）评估稿，含板级 SDIO 引脚原图核实、组件版本与 S1~S5 落地计划（S1 已完整验收通过，见第 11 节；S2 起待实施）
 - `guider/SCR.txt`：GUI Guider 生成内容的第三方许可清单
 - 个人笔记库（工程外）：`D:\Documents\Notes\嵌入式\01_平台层（硬件）\ESP32\P4` —— `鱼鹰P4C5-AT.md`（AT 通道引脚速查）、`ESP32-P4-通用代码骨架.md`（平台通用代码）。分流规则见 `AGENTS.md` 第 9 节。
 
