@@ -26,6 +26,7 @@
 
 #include "camera_preview.h"
 #include "h264_sink.h"
+#include "rtsp_server.h"
 
 #define ENC_W          800
 #define ENC_H          800
@@ -132,6 +133,10 @@ static void h264_on_frame(const uint8_t *frame, size_t len, void *user_ctx)
 
     s_frames++;
     s_bytes += out.length;
+
+    /* S4：把 Annex-B NAL 交给 RTSP Server（非阻塞，队列满即丢帧）。 */
+    rtsp_server_push_frame(s_out_buf, out.length,
+                           out.frame_type == ESP_H264_FRAME_TYPE_IDR);
 
     if (out.frame_type == ESP_H264_FRAME_TYPE_IDR) {
         s_idr++;

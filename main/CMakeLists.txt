@@ -37,7 +37,7 @@ set(APP_REQUIRES_NET esp_hosted esp_wifi esp_event esp_netif nvs_flash lwip)
 
 if(APP_MODE_H264)
     # S3: camera preview (RGB565 -> DPI fb) + P4 HW H.264 encoder + network.
-    set(APP_SRCS "main.c" "h264_sink.c")
+    set(APP_SRCS "main.c" "h264_sink.c" "rtsp_server.c")
     set(APP_REQUIRES spi_flash esp_psram esp_mm esp_lcd lcd_jd9366
                      esp_driver_i2c esp_driver_gpio camera_preview
                      espressif__esp_h264 ${APP_REQUIRES_NET})

@@ -107,7 +107,7 @@ idf.py -p <PORT> flash monitor
 
 - 用户已明确：**最终业务功能暂不公开**；但 **2026-11-09 已确认第一阶段验证目标**：先做一个**不链接 LVGL、不经过网络协议**的摄像头本地裸显预览（设计与分步验收见 `doc/摄像头裸显预览方案.md`）。因此：
   - 禁止臆测该功能是什么，禁止预造 API、文件名、组件行为；
-  - `components/esp32at_sdio`（空 `CMakeLists.txt`）是历史 AT 通道占位，**AT SDIO 固件已弃用**；C5 当前跑 ESP-Hosted 3.1.0 `cp/` 固件，S1 已在独立验证工程跑通（`got ip` + ping），本工程集成待 S2。音频、TF、USB 仍为「硬件已具备 / 软件未接入」；**MIPI-CSI 摄像头已接入且完整跑通**（`camera_preview`，30 fps 正常成像，见 `doc/摄像头裸显预览方案.md` 第 8.5 / 9 节），不要再写「软件未接入」或「正常成像待完成」；
+  - `components/esp32at_sdio`（空 `CMakeLists.txt`）是历史 AT 通道占位，**AT SDIO 固件已弃用**；C5 当前跑 ESP-Hosted 3.1.0 `cp/` 固件，**S1 / S2 / S4 均已跑通**（本工程 `APP_MODE_NET` / `APP_MODE_H264` 内 `got ip`、ping、RTSP 拉流全部验证）。音频、TF、USB 仍为「硬件已具备 / 软件未接入」；**MIPI-CSI 摄像头已接入且完整跑通**（`camera_preview`，30 fps 正常成像，见 `doc/摄像头裸显预览方案.md` 第 8.5 / 9 节），不要再写「软件未接入」或「正常成像待完成」；
   - 需求不清就提问，不要用"通常做法是……"代替本工程事实。
 - **2026-11-09 实测进度**：`APP_MODE_CAMERA_RAW` 的 **S0（不链接 LVGL 的纯屏彩条裸显）已编译 / 烧录 / 实测通过**，日志与数据见 `doc/摄像头裸显预览方案.md` 第 5.1 节。因此：
   - **不要再声称"本机没有 ESP-IDF 环境 / 未编译验证"**。本机 IDF 为 **v6.1**（`D:\Program\Espressif\v6.1\esp-idf`），串口 **COM7**；PowerShell 下 dot-source `C:\Espressif\tools\Microsoft.v6.1.PowerShell_profile.ps1` 激活。**Git Bash / MSys 不被 IDF 6.1 支持**（报 `MSys/Mingw is no longer supported`），编译烧录走 PowerShell / cmd。

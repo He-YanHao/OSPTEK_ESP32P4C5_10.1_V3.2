@@ -27,6 +27,7 @@
 
 #if defined(CONFIG_APP_MODE_H264)
 #include "h264_sink.h"
+#include "rtsp_server.h"
 #endif
 
 #if !defined(CONFIG_APP_MODE_CAMERA_RAW) && !defined(CONFIG_APP_MODE_NET) && !defined(CONFIG_APP_MODE_H264)
@@ -130,11 +131,13 @@ static void app_net_init(void)
     wifi_config_t wc = {0};
     snprintf((char *)wc.sta.ssid, sizeof(wc.sta.ssid), "%s", CONFIG_APP_WIFI_SSID);
     snprintf((char *)wc.sta.password, sizeof(wc.sta.password), "%s", CONFIG_APP_WIFI_PASSWORD);
-    /* 手机热点 OnePlus 实测是 WPA3-SAE（RSN AKM 00-0f-ac:8）。
-     * 只写 WPA2_PSK threshold 且不设 SAE PWE 时 C5 会反复 AUTH_EXPIRE
-     * (reason=2)。按官方 station 示例配成 WPA2/WPA3 兼容 + PWE BOTH。 */
-    wc.sta.threshold.authmode = WIFI_AUTH_WPA2_WPA3_PSK;
+    /* 照抄官方 sta/mcu_host 示例 S1 实测成功的配置：WPA2_PSK threshold
+     * + SAE PWE BOTH + H2E identifier。热点 OnePlus 为纯 WPA3-SAE
+     * (RSN AKM 00-0f-ac:8)，threshold 只作扫描下限，SAE 协商靠 PWE。 */
+    wc.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
     wc.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
+    snprintf((char *)wc.sta.sae_h2e_identifier,
+             sizeof(wc.sta.sae_h2e_identifier), "%s", "");
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wc));
@@ -162,20 +165,30 @@ static void app_main_h264(void)
         return;
     }
 
+    /* S4：RTSP Server 必须在采集启动前就绪，避免首帧 NAL 丢失。 */
+    if (rtsp_server_start(8554) != ESP_OK) {
+        ESP_LOGE(TAG, "rtsp_server_start failed");
+        return;
+    }
+
     esp_err_t err = camera_preview_start(NULL);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "camera_preview_start failed: %s", esp_err_to_name(err));
         return;
     }
-    ESP_LOGI(TAG, "H264 NAL dump mode started (TCP:9999)");
+    ESP_LOGI(TAG, "H264 + RTSP started (rtsp://<ip>:8554/live, TCP:9999 dump)");
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(5000));
         uint32_t frames = 0, bytes = 0, idr = 0, errors = 0;
         h264_sink_get_stats(&frames, &bytes, &idr, &errors);
-        ESP_LOGI(TAG, "h264 frames=%u bytes=%u idr=%u err=%u cam=%u",
-                 (unsigned)frames, (unsigned)bytes, (unsigned)idr,
-                 (unsigned)errors, (unsigned)camera_preview_get_frame_count());
+        uint32_t sess = 0, pkts = 0, rbytes = 0, dropped = 0;
+        rtsp_server_get_stats(&sess, &pkts, &rbytes, &dropped);
+        ESP_LOGI(TAG, "h264=%u idr=%u err=%u cam=%u | rtsp sess=%u pkts=%u bytes=%u drop=%u",
+                 (unsigned)frames, (unsigned)idr, (unsigned)errors,
+                 (unsigned)camera_preview_get_frame_count(),
+                 (unsigned)sess, (unsigned)pkts, (unsigned)rbytes,
+                 (unsigned)dropped);
     }
 }
 
