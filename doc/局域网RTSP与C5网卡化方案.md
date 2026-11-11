@@ -377,12 +377,12 @@ Windows 主机 `10.206.119.76` → `ping 10.206.119.248`：**3/3 通、0% 丢包
 1. **漏了 `WIFI_EVENT_STA_START → esp_wifi_connect()`**：第一版只处理 disconnected，STA 启动后从不发起连接 —— SDIO 握手全过、Wi-Fi 配置也生效，但 25 秒都没有 `got ip`。补上后 1.4 s 内拿到 IP。这是 S2 唯一的功能性 bug。
 2. **编辑工具产出的文件带 UTF-8 BOM**：`partitions.csv` 首行出现 BOM 字符，虽在注释行不影响解析，已统一清除；以后上传生成文件先查 BOM。
 3. **凭据写入**：S2 阶段 `sdkconfig` 含真实密码且刻意不提交，S3 起用户已授权提交（见第 13.4 节）；写密码时工具回显会替换字符串，改用 base64 传参 + SHA1 校验。应用日志不打印 SSID / 密码。
-4. **组件管理器副作用**：reconfigure 顺带更新了 tracked 的 `espressif__esp_lv_decoder` 几个文件（CHANGELOG / `.component_hash` / `esp_lv_decoder.c`），属生成器产物，**本轮不提交**；新下载的组件目录已由 `.gitignore` 排除。
+4. **组件管理器副作用**：reconfigure 顺带把 tracked 的 `espressif__esp_lv_decoder` 从 0.5.0 更新到 **0.5.1**（修复 LVGL v9 文件头探测），涉及 CHANGELOG / `.component_hash` / `esp_lv_decoder.c`；属组件管理器产物，**已在 S4 收尾的全量提交中一并纳入**，新下载的组件目录仍由 `.gitignore` 排除。
 
 ### 12.6 下一步（S3）
 
 - ✅ S3 已完成：改用 `esp_h264` 直接编码 RGB565，NAL 经 ffprobe / ffmpeg 验证合法（见第 13 节）。
-- `socket()` 真实收发：S2 已有 ICMP 回应，TCP:9999 因本轮 Wi-Fi 认证失败暂未验收，待热点恢复后补测。
+- `socket()` 真实收发：**S4 已验收**（RTSP 四步握手 + ffmpeg 拉流解出 149 帧 ≈30 fps）；S2 当时只有 ICMP 回应。
 - 当前 P4 flash 跑的是 NET 模式固件；切回摄像头只需把 `sdkconfig` 的 `APP_MODE` 改回并重编烧录。
 
 ## 13. S3 实测记录（2026-11-11 深夜，H.264 编码 / 已完整验收）
@@ -403,7 +403,7 @@ Windows 主机 `10.206.119.76` → `ping 10.206.119.248`：**3/3 通、0% 丢包
 - 新增 `APP_MODE_H264`（第 4 个 `APP_MODE` 选项）：`main/CMakeLists.txt` 四分支，`REQUIRES` 同时含网络链（`esp_hosted esp_wifi esp_event esp_netif nvs_flash lwip`）、摄像头链（`camera_preview lcd_jd9366 esp_mm esp_lcd esp_driver_i2c esp_driver_gpio`）与 `espressif__esp_h264`；`MINIMAL_BUILD` 回读 sdkconfig 的兜底扩展为四模式。
 - `main/idf_component.yml` 新增 `espressif/esp_h264 ^1.5.0`（实得 **1.5.0**）。
 - `components/camera_preview` 新增可选帧回调 `camera_preview_set_frame_cb()`：在 `cam_rx_task` 每帧 `draw_bitmap` 提交后同步调用；默认 NULL，**摄像头基线行为完全不变**。
-- `main/h264_sink.c`：`esp_h264_enc_hw_new(RGB565_LE, 800×800, GOP30, fps30, 2 Mbps, QP24~36)` → `esp_h264_enc_open()` → 每帧 `esp_h264_enc_process()`；输出缓冲用 `esp_h264_aligned_calloc(..., ESP_H264_MEM_SPIRAM)`。首个 IDR 帧既通过 **TCP:9999** 完整发给 PC，也通过串口 `NALHEX` 分块导出（32 B/行），后者不依赖网络。
+- `main/h264_sink.c`：`esp_h264_enc_hw_new(RGB565_LE, 800×800, GOP30, fps30, 2 Mbps, QP24~36)` → `esp_h264_enc_open()` → 每帧 `esp_h264_enc_process()`；输出缓冲用 `esp_h264_aligned_calloc(..., ESP_H264_MEM_SPIRAM)`。首个 IDR 帧既通过 **TCP:9999** 完整发给 PC，也通过串口 `NALHEX` 分块导出（32 B/行），后者不依赖网络。**（历史验收手段，S4 收尾已移除；现统一用 RTSP 拉流验收，见 14.6）**
 - `main.c` 把网络初始化抽成 `app_net_init()` 供 NET / H264 共用；H264 分支顺序 `app_net_init() → lcd_jd9366_init(2) → h264_sink_start() → camera_preview_start()`。
 
 ### 13.3 验收：ffprobe / ffmpeg 解析通过
@@ -519,7 +519,7 @@ ffplay  -rtsp_transport tcp rtsp://10.206.119.248:8554/live
    `APP_MODE_NET` 仍 `reason=2`，确认不是 ISP+H264+SDIO 并发把认证握手饿死。
 4. **TCP interleaved 优于 UDP**：热点 AP 隔离可能挡住板子→PC 的 UDP 单播，
    ffprobe 用 UDP 失败（`-10054`），换 `-rtsp_transport tcp` 立即成功。
-5. **S3 的 TCP:9999 / 串口 NALHEX 导出保留**，作为不依赖网络的码流验收后备手段。
+5. **S3 的 TCP:9999 / 串口 NALHEX 导出已于收尾时移除**（见 14.6）：dump server 常驻任务占栈与 512 KB PSRAM，串口分块导出会在首帧阻塞帧提交任务约 0.8 s；RTSP 拉流已是更直接的码流验收手段。
 
 ### 14.5 遗留与下一步（S5）
 
@@ -530,3 +530,35 @@ ffplay  -rtsp_transport tcp rtsp://10.206.119.248:8554/live
   可改为 ISP 原生 YUV420 输出，省去 RGB565 中间格式。
 - 热点认证收敛慢属于外部 AP 行为；如需稳定开机即在线，可评估让 C5 开 SoftAP
   做独立局域网，完全绕开手机热点。
+
+### 14.6 收尾整理与交付状态（2026-11-12）
+
+用户确认「测试通过」后做了一次交付级整理，目标是让仓库与代码都进入可长期维护状态。
+
+**代码整理（仅 `APP_MODE_H264` 分支，不改变功能）**
+
+| 移除项 | 原因 |
+| --- | --- |
+| `h264_dump_server` 任务 / TCP:9999 监听 | S3 验收用的一次性通道；常驻任务占 4096 B 栈，且永远只服务一个客户端 |
+| `s_dump_buf` 512 KB PSRAM 分配 | 同上，随 dump server 一起消失 |
+| 首帧 96 行 `NALHEX` 串口分块导出 | 实测会让 `commits` 恒定落后约 21 帧（阻塞 `cam_rx_task` 约 0.8 s） |
+| `main.c` 启动日志里的 `TCP:9999 dump` | 已无对应服务 |
+
+保留：单行 `first IDR NAL len=... head=...` 日志（只打一次，确认首帧自带 SPS/PPS）、
+`h264_sink_get_stats()` 四项计数、心跳里的 `h264= / rtsp sess/pkts/bytes/drop`。
+`h264_sink.c` 由此收敛为纯粹的「RGB565 → HW 编码 → `rtsp_server_push_frame()`」组件。
+整理后重新编译烧录并复验 RTSP 拉流，确认 30 fps 与零错误未受影响。
+
+**全量提交**
+
+此前几轮有意留在工作区不提交的 5 个文件一并纳入：lt6911 固件 hex（CRLF/LF 换行规范化）
+与 `espressif__esp_lv_decoder` 0.5.0→0.5.1 的 4 个组件管理器产物。提交后
+`git status` 干净。`.gitignore` 仍排除未被跟踪的 `managed_components/*/`，
+`sdkconfig` 含真实热点凭据（用户已授权入库）。
+
+**虚拟机工作区约定**
+
+用户明确：`~/esp/` 是唯一允许放置本会话产物的位置，`~/` 顶层不要堆临时文件。
+本轮把散落在 `/home/he` 顶层的补丁脚本、源码备份、串口监听日志、
+独立验证仓库统一归档/迁移到 `~/esp/` 下（详见当日工作日志）。
+后续所有临时脚本、备份与抓包日志一律写 `~/esp/` 内，不再污染家目录顶层。

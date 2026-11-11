@@ -49,7 +49,7 @@ idf.py size-components         # 关注 factory 分区余量（现为 4M）
 | `APP_MODE_GUI`（默认） | LVGL + GUI Guider 基线 | `spi_flash esp_psram lvgl_init guider_ui` |
 | `APP_MODE_CAMERA_RAW` | 不链接 GUI 链的裸显模式：`lcd_jd9366` + `camera_preview`，开机直接进入摄像头直显（DSI 彩条自检已移除） | `spi_flash esp_psram esp_mm esp_lcd esp_driver_i2c esp_driver_gpio lcd_jd9366 camera_preview` |
 | `APP_MODE_NET` | **S2 网络基线**：C5 作 SDIO 网卡，标准 `lwIP / esp_netif / socket`，不链接 LVGL / 摄像头 | `spi_flash esp_psram esp_hosted esp_wifi esp_event esp_netif nvs_flash esp_driver_gpio` |
-| `APP_MODE_H264` | **S3+S4**：网络 + 摄像头预览 + P4 硬件 H.264 + RTSP Server（8554），NAL 亦可经 TCP:9999 / 串口导出 | 上述网络链 + `camera_preview lcd_jd9366 esp_mm esp_lcd` + `espressif__esp_h264`；`rtsp_server.c` 仅用 lwIP socket |
+| `APP_MODE_H264` | **S3+S4**：网络 + 摄像头预览 + P4 硬件 H.264 + RTSP Server（8554）；S3 的 TCP:9999 / 串口 NAL 导出已在收尾时移除，码流验收统一走 RTSP 拉流 | 上述网络链 + `camera_preview lcd_jd9366 esp_mm esp_lcd` + `espressif__esp_h264`；`rtsp_server.c` 仅用 lwIP socket |
 
 ```bash
 idf.py menuconfig             # Application Mode → Camera raw preview

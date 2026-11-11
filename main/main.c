@@ -176,7 +176,7 @@ static void app_main_h264(void)
         ESP_LOGE(TAG, "camera_preview_start failed: %s", esp_err_to_name(err));
         return;
     }
-    ESP_LOGI(TAG, "H264 + RTSP started (rtsp://<ip>:8554/live, TCP:9999 dump)");
+    ESP_LOGI(TAG, "H264 + RTSP started (rtsp://<ip>:8554/live)");
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(5000));
